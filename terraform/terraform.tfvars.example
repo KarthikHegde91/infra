@@ -1,0 +1,30 @@
+# terraform.tfvars.example — Example values file
+#
+# INSTRUCTIONS:
+# 1. Copy this file: cp terraform.tfvars.example terraform.tfvars
+# 2. Fill in your actual values in terraform.tfvars
+# 3. NEVER commit terraform.tfvars to git (it's in .gitignore)
+
+# --- OCI Authentication ---
+oci_tenancy_ocid     = "ocid1.tenancy.oc1..aaaa..."
+oci_user_ocid        = "ocid1.user.oc1..aaaa..."
+oci_fingerprint      = "aa:bb:cc:dd:ee:ff:..."
+oci_private_key_path = "~/.oci/oci_api_key.pem"
+oci_region           = "ap-mumbai-1"
+
+# --- OCI Compute ---
+compartment_ocid = "ocid1.tenancy.oc1..aaaa..."  # Same as tenancy OCID for root compartment
+
+# SSH public key — paste the CONTENTS of your ~/.ssh/id_rsa.pub
+ssh_public_key = "ssh-rsa AAAA..."
+
+# Your current public IP for SSH access (find at whatismyip.com)
+# Add /32 at the end (means "this exact IP only")
+ssh_allowed_ip = "1.2.3.4/32"
+
+# --- Cloudflare ---
+cloudflare_api_token = "your-cloudflare-api-token"
+cloudflare_zone_id   = "your-zone-id-from-cloudflare-dashboard"
+
+# Leave empty on first apply. Set after creating tunnel in Step 7.
+tunnel_id = ""

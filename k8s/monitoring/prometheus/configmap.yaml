@@ -1,0 +1,53 @@
+# Prometheus configuration — What to scrape and where to send data
+#
+# scrape_configs: defines WHAT to monitor and HOW OFTEN
+# remote_write: sends all scraped data to VictoriaMetrics for long-term storage
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: monitoring
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 30s
+      # How often Prometheus collects metrics from each target
+      # 30s is a good balance between freshness and resource usage
+      evaluation_interval: 30s
+      # How often Prometheus evaluates alert rules
+
+    # Send all metrics to VictoriaMetrics for long-term storage
+    remote_write:
+      - url: http://victoriametrics.monitoring.svc.cluster.local:8428/api/v1/write
+        # This uses K8s internal DNS to find VictoriaMetrics
+
+    scrape_configs:
+      # Monitor Prometheus itself
+      - job_name: "prometheus"
+        static_configs:
+          - targets: ["localhost:9090"]
+
+      # Monitor all K8s nodes (the VM itself)
+      # Collects: CPU, memory, disk, network metrics
+      - job_name: "kubernetes-nodes"
+        kubernetes_sd_configs:
+          - role: node
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+
+      # Auto-discover and monitor K8s pods that expose metrics
+      # Any pod with the annotation prometheus.io/scrape: "true"
+      # will be automatically scraped
+      - job_name: "kubernetes-pods"
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            target_label: __address__
+            regex: (.+)
+            replacement: ${1}

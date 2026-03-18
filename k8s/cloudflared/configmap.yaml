@@ -1,0 +1,45 @@
+# Cloudflare Tunnel configuration — The routing table
+#
+# This is the most important networking file in the entire setup.
+# It maps public URLs to internal Kubernetes services.
+#
+# How it works:
+# 1. Someone visits grafana.karthikhegde.in
+# 2. Cloudflare DNS routes to this tunnel
+# 3. cloudflared (running in K3s) receives the request
+# 4. It looks at this config and forwards to grafana.monitoring.svc:3000
+# 5. Grafana responds, cloudflared sends response back through the tunnel
+#
+# No open ports needed! The tunnel is an OUTBOUND connection from
+# your VM to Cloudflare's edge network.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloudflared-config
+  namespace: cloudflared
+data:
+  config.yaml: |
+    tunnel: REPLACE_WITH_TUNNEL_ID
+    credentials-file: /etc/cloudflared/credentials.json
+    no-autoupdate: true
+
+    ingress:
+      # Grafana dashboards
+      - hostname: grafana.karthikhegde.in
+        service: http://grafana.monitoring.svc.cluster.local:3000
+
+      # Uptime Kuma status page
+      - hostname: status.karthikhegde.in
+        service: http://uptime-kuma.uptime-kuma.svc.cluster.local:3001
+
+      # ArgoCD dashboard
+      - hostname: argocd.karthikhegde.in
+        service: https://argocd-server.argocd.svc.cluster.local:443
+        originRequest:
+          noTLSVerify: true
+          # ArgoCD uses a self-signed cert internally.
+          # noTLSVerify tells cloudflared to trust it.
+
+      # Catch-all — required by cloudflared
+      # Any request that doesn't match above hostnames gets a 404
+      - service: http_status:404

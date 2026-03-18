@@ -1,0 +1,56 @@
+# Prometheus — Metrics scraper
+#
+# Prometheus periodically "scrapes" (pulls) metrics from your services.
+# Every 30 seconds, it visits each target and collects data like:
+# - CPU usage, memory usage, disk I/O
+# - HTTP request count, error rates, latency
+#
+# It stores metrics short-term and "remote writes" them to
+# VictoriaMetrics for long-term storage.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      serviceAccountName: prometheus
+      containers:
+        - name: prometheus
+          image: prom/prometheus:latest
+          args:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --storage.tsdb.path=/prometheus
+            - --storage.tsdb.retention.time=7d
+            # Keep local data for 7 days only (VictoriaMetrics has 6 months)
+            - --web.enable-lifecycle
+            # Allows config reload via HTTP POST to /-/reload
+          ports:
+            - containerPort: 9090
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus
+            - name: data
+              mountPath: /prometheus
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "250m"
+      volumes:
+        - name: config
+          configMap:
+            name: prometheus-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: prometheus-pvc

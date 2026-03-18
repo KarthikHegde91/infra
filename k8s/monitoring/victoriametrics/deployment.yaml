@@ -1,0 +1,50 @@
+# VictoriaMetrics — Long-term metrics storage
+#
+# Think of VictoriaMetrics as a database optimized for time-series data
+# (CPU usage at 10:00, at 10:01, at 10:02, etc.)
+#
+# Why VictoriaMetrics instead of just Prometheus?
+# - Uses 7x less RAM than Prometheus for the same data
+# - Supports 6+ month retention (Prometheus is ~2 weeks by default)
+# - Accepts data FROM Prometheus via "remote write"
+#
+# Architecture: Prometheus scrapes metrics → writes to VictoriaMetrics → Grafana reads from VictoriaMetrics
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: victoriametrics
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: victoriametrics
+  template:
+    metadata:
+      labels:
+        app: victoriametrics
+    spec:
+      containers:
+        - name: victoriametrics
+          image: victoriametrics/victoria-metrics:latest
+          args:
+            - --storageDataPath=/victoria-metrics-data
+            - --retentionPeriod=6
+            # retentionPeriod=6 means keep data for 6 months
+            - --httpListenAddr=:8428
+          ports:
+            - containerPort: 8428
+          volumeMounts:
+            - name: data
+              mountPath: /victoria-metrics-data
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "250m"
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: victoriametrics-pvc

@@ -1,0 +1,25 @@
+# ArgoCD Application — Cloudflare Tunnel
+#
+# NOTE: The cloudflared-credentials secret is created manually
+# (not tracked in git for security). ArgoCD manages the rest:
+# namespace, configmap, and deployment.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cloudflared
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/KarthikHegde91/infra.git
+    targetRevision: main
+    path: k8s/cloudflared
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cloudflared
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

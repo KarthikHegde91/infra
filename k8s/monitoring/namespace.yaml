@@ -1,0 +1,8 @@
+# namespace.yaml — Create an isolated space for monitoring tools
+#
+# Namespaces in Kubernetes are like folders — they keep related
+# resources together and separated from other workloads.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring

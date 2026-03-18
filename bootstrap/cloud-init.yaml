@@ -1,0 +1,61 @@
+#cloud-config
+# cloud-init.yaml — Runs automatically on first VM boot
+#
+# This script does 3 things:
+# 1. Updates the OS and installs required packages
+# 2. Fixes Oracle's restrictive iptables rules (CRITICAL)
+# 3. Installs K3s (lightweight Kubernetes)
+#
+# You can check if cloud-init finished by SSHing in and running:
+#   cloud-init status    (should say "done")
+#   cat /var/log/cloud-init-output.log    (full log)
+
+# Step 1: Update packages and install dependencies
+package_update: true
+package_upgrade: true
+
+packages:
+  - curl
+  - git
+  - open-iscsi     # Required for some K8s storage drivers
+  - nfs-common     # NFS support for persistent volumes
+
+# Step 2 & 3: Fix iptables and install K3s
+runcmd:
+  # --- Fix Oracle's iptables rules ---
+  # Oracle's Ubuntu images come with strict iptables rules that block
+  # almost all traffic. K3s needs open internal networking to work.
+  # These commands flush (clear) all firewall rules and set the default
+  # policy to ACCEPT (allow everything).
+  # The security list in OCI (networking.tf) handles our actual firewall.
+  - iptables -F
+  - iptables -P INPUT ACCEPT
+  - iptables -P FORWARD ACCEPT
+  - iptables -P OUTPUT ACCEPT
+  # Save the rules so they persist after reboot
+  - netfilter-persistent save
+
+  # --- Install K3s ---
+  # K3s is a lightweight Kubernetes distribution.
+  # It's a single binary that includes everything:
+  # - kube-apiserver, kube-scheduler, kube-controller-manager
+  # - kubelet, kube-proxy
+  # - CoreDNS, metrics-server
+  # - local-path storage provisioner
+  #
+  # Flags explained:
+  # --disable traefik    → We don't need an ingress controller
+  #                        (Cloudflare Tunnel handles routing instead)
+  # --disable servicelb  → We don't need a load balancer
+  #                        (no open ports = no load balancer needed)
+  - curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server --disable traefik --disable servicelb" sh -
+
+  # --- Make kubectl work for the ubuntu user ---
+  # K3s creates its config at /etc/rancher/k3s/k3s.yaml (root only)
+  # We copy it so the ubuntu user can use kubectl without sudo
+  - mkdir -p /home/ubuntu/.kube
+  - cp /etc/rancher/k3s/k3s.yaml /home/ubuntu/.kube/config
+  - chown -R ubuntu:ubuntu /home/ubuntu/.kube
+
+  # Add KUBECONFIG to bashrc so kubectl always works
+  - echo 'export KUBECONFIG=/home/ubuntu/.kube/config' >> /home/ubuntu/.bashrc

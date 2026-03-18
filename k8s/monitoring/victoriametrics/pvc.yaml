@@ -1,0 +1,17 @@
+# PersistentVolumeClaim — Request disk space for metrics data
+#
+# Without a PVC, data is lost when the pod restarts.
+# This requests 20GB of persistent storage from K3s's
+# built-in "local-path" storage provisioner (stores on the VM's disk).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: victoriametrics-pvc
+  namespace: monitoring
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 20Gi

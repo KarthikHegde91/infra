@@ -1,0 +1,56 @@
+# cloudflared — The Cloudflare Tunnel connector
+#
+# This pod maintains a persistent outbound connection to Cloudflare's
+# edge network. When traffic arrives at your subdomains, Cloudflare
+# sends it through this tunnel to the right K8s service.
+#
+# Key benefit: Your VM has ZERO open inbound ports.
+# All traffic flows: Internet → Cloudflare → Tunnel → K8s Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared
+  namespace: cloudflared
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cloudflared
+  template:
+    metadata:
+      labels:
+        app: cloudflared
+    spec:
+      containers:
+        - name: cloudflared
+          image: cloudflare/cloudflared:latest
+          args:
+            - tunnel
+            - --config
+            - /etc/cloudflared/config.yaml
+            - run
+          volumeMounts:
+            - name: config
+              mountPath: /etc/cloudflared/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            - name: credentials
+              mountPath: /etc/cloudflared/credentials.json
+              subPath: credentials.json
+              readOnly: true
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "100m"
+      volumes:
+        - name: config
+          configMap:
+            name: cloudflared-config
+        - name: credentials
+          secret:
+            secretName: cloudflared-credentials
+            # This secret is created manually (not in git)
+            # See secret.yaml.example for instructions

@@ -1,0 +1,53 @@
+# Grafana — Dashboard UI for visualizing metrics
+#
+# Grafana reads data from VictoriaMetrics/Prometheus and displays
+# it as graphs, charts, and alerts. It's the "pretty face" of monitoring.
+# Accessible at grafana.karthikhegde.in through the Cloudflare Tunnel.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      containers:
+        - name: grafana
+          image: grafana/grafana:latest
+          ports:
+            - containerPort: 3000
+          env:
+            # Allow anonymous read-only access for the public dashboard
+            - name: GF_AUTH_ANONYMOUS_ENABLED
+              value: "true"
+            - name: GF_AUTH_ANONYMOUS_ORG_ROLE
+              value: "Viewer"
+            # Set the root URL so Grafana knows its public address
+            - name: GF_SERVER_ROOT_URL
+              value: "https://grafana.karthikhegde.in"
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/grafana
+            - name: datasources
+              mountPath: /etc/grafana/provisioning/datasources
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: grafana-pvc
+        - name: datasources
+          configMap:
+            name: grafana-datasources

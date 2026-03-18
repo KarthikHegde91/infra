@@ -1,0 +1,33 @@
+# ArgoCD Application — Monitoring Stack
+#
+# This tells ArgoCD: "Watch the k8s/monitoring/ folder in the infra repo.
+# Whenever those files change, automatically apply them to the cluster."
+#
+# This is GitOps — Git is the source of truth for what runs in K8s.
+# You push changes to Git, ArgoCD deploys them. No manual kubectl needed.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/KarthikHegde91/infra.git
+    targetRevision: main
+    path: k8s/monitoring
+    # ArgoCD will apply ALL yaml files in this directory
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      # prune = true: if you DELETE a file from git, ArgoCD
+      # deletes the corresponding resource from K8s
+      selfHeal: true
+      # selfHeal = true: if someone manually changes something
+      # in K8s, ArgoCD reverts it to match Git
+    syncOptions:
+      - CreateNamespace=true
+      # Automatically create the namespace if it doesn't exist

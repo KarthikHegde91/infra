@@ -1,0 +1,28 @@
+# Grafana datasource provisioning
+#
+# This auto-configures Grafana's data sources on first boot.
+# Instead of manually adding datasources through the UI,
+# Grafana reads this config and sets them up automatically.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: monitoring
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      # VictoriaMetrics — primary datasource (long-term metrics)
+      - name: VictoriaMetrics
+        type: prometheus
+        # VictoriaMetrics speaks the same query language as Prometheus
+        # so Grafana treats it as a Prometheus-type datasource
+        url: http://victoriametrics.monitoring.svc.cluster.local:8428
+        access: proxy
+        isDefault: true
+
+      # Prometheus — secondary datasource (real-time, last 7 days)
+      - name: Prometheus
+        type: prometheus
+        url: http://prometheus.monitoring.svc.cluster.local:9090
+        access: proxy
