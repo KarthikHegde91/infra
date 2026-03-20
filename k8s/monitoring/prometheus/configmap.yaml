@@ -27,6 +27,11 @@ data:
         static_configs:
           - targets: ["localhost:9090"]
 
+      # Monitor host system via node_exporter
+      - job_name: "node-exporter"
+        static_configs:
+          - targets: ["10.0.1.120:9100"]
+
       # Monitor all K8s nodes (the VM itself)
       # Collects: CPU, memory, disk, network metrics
       - job_name: "kubernetes-nodes"
