@@ -43,7 +43,7 @@ resource "oci_core_instance" "k3s" {
   display_name        = "k3s-node"
 
   # Which data center to place the VM in
-  availability_domain = data.oci_identity_availability_domains.ads.availability_domains[0].name
+  availability_domain = data.oci_identity_availability_domains.ads.availability_domains[var.ad_index].name
 
   # VM shape — ARM Flex (you choose CPU + RAM)
   shape = var.vm_shape

@@ -19,7 +19,7 @@ metadata:
   namespace: cloudflared
 data:
   config.yaml: |
-    tunnel: REPLACE_WITH_TUNNEL_ID
+    tunnel: aa58d569-646d-4016-b93a-53f014cb107b
     credentials-file: /etc/cloudflared/credentials.json
     no-autoupdate: true
 

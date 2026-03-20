@@ -74,6 +74,12 @@ variable "boot_volume_gb" {
   default     = 200
 }
 
+variable "ad_index" {
+  description = "Index of the Availability Domain to use (0, 1, or 2). Change if one AD is out of capacity"
+  type        = number
+  default     = 0
+}
+
 variable "ssh_public_key" {
   description = "Your SSH public key (contents of ~/.ssh/id_rsa.pub) for VM access"
   type        = string
