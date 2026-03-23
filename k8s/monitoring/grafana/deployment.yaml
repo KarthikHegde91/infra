@@ -35,11 +35,19 @@ spec:
             # Hide sign-out for cleaner anonymous experience
             - name: GF_AUTH_DISABLE_SIGNOUT_MENU
               value: "true"
+            # Set home dashboard
+            - name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH
+              value: "/var/lib/grafana/dashboards/node-exporter-full.json"
           volumeMounts:
             - name: data
               mountPath: /var/lib/grafana
             - name: datasources
               mountPath: /etc/grafana/provisioning/datasources
+            - name: dashboard-provider
+              mountPath: /etc/grafana/provisioning/dashboards
+            - name: dashboards
+              mountPath: /var/lib/grafana/dashboards
+              readOnly: true
           resources:
             requests:
               memory: "128Mi"
@@ -54,3 +62,10 @@ spec:
         - name: datasources
           configMap:
             name: grafana-datasources
+        - name: dashboard-provider
+          configMap:
+            name: grafana-dashboard-provider
+        - name: dashboards
+          hostPath:
+            path: /opt/grafana/dashboards
+            type: Directory
