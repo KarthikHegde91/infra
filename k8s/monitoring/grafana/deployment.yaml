@@ -32,11 +32,7 @@ spec:
             # Set the root URL so Grafana knows its public address
             - name: GF_SERVER_ROOT_URL
               value: "https://grafana.karthikhegde.in"
-            # Hide login/sign-in for anonymous visitors
-            - name: GF_AUTH_BASIC_ENABLED
-              value: "false"
-            - name: GF_AUTH_DISABLE_LOGIN_FORM
-              value: "true"
+            # Hide sign-out for cleaner anonymous experience
             - name: GF_AUTH_DISABLE_SIGNOUT_MENU
               value: "true"
           volumeMounts:
