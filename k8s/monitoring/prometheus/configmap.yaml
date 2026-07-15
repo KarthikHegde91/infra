@@ -30,7 +30,8 @@ data:
       # Monitor host system via node_exporter
       - job_name: "node-exporter"
         static_configs:
-          - targets: ["10.0.1.120:9100"]
+          # Set to your K3s node's internal VCN IP (e.g. 10.0.x.x)
+          - targets: ["NODE_INTERNAL_IP:9100"]
 
       # Monitor all K8s nodes (the VM itself)
       # Collects: CPU, memory, disk, network metrics
