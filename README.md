@@ -105,4 +105,4 @@ A place to practice real DevOps/SRE — cluster ops, GitOps, IaC, observability,
 ---
 
 **Author:** Karthik B Hegde — DevOps / SRE Engineer, Bengaluru
-[karthikhegde.in](https://karthikhegde.in) · [LinkedIn](https://www.linkedin.com/in/karthik-hegde-9112b6198) · [GitHub](https://github.com/KarthikHegde91)
+[karthikhegde.in](https://karthikhegde.in) · [LinkedIn](https://www.linkedin.com/in/karthikhegde1) · [GitHub](https://github.com/KarthikHegde91)
