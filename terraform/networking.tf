@@ -104,9 +104,9 @@ resource "oci_core_security_list" "main" {
 # ------------------------------------------
 # The VM will get an IP address from this subnet (10.0.1.x)
 resource "oci_core_subnet" "public" {
-  compartment_id    = var.compartment_ocid
-  vcn_id            = oci_core_vcn.main.id
-  cidr_block        = "10.0.1.0/24"
+  compartment_id = var.compartment_ocid
+  vcn_id         = oci_core_vcn.main.id
+  cidr_block     = "10.0.1.0/24"
   # /24 = 256 IP addresses (10.0.1.0 to 10.0.1.255)
   display_name      = "public-subnet"
   dns_label         = "pub"

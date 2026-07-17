@@ -39,8 +39,8 @@ data "oci_core_images" "ubuntu" {
 # The VM Instance
 # ------------------------------------------
 resource "oci_core_instance" "k3s" {
-  compartment_id      = var.compartment_ocid
-  display_name        = "k3s-node"
+  compartment_id = var.compartment_ocid
+  display_name   = "k3s-node"
 
   # Which data center to place the VM in
   availability_domain = data.oci_identity_availability_domains.ads.availability_domains[var.ad_index].name
@@ -50,15 +50,15 @@ resource "oci_core_instance" "k3s" {
 
   # How much CPU and RAM
   shape_config {
-    ocpus         = var.vm_ocpus          # 4 ARM cores
-    memory_in_gbs = var.vm_memory_gb      # 24 GB RAM
+    ocpus         = var.vm_ocpus     # 4 ARM cores
+    memory_in_gbs = var.vm_memory_gb # 24 GB RAM
   }
 
   # What OS to install and how big the disk should be
   source_details {
     source_type             = "image"
     source_id               = data.oci_core_images.ubuntu.images[0].id
-    boot_volume_size_in_gbs = var.boot_volume_gb  # 200 GB
+    boot_volume_size_in_gbs = var.boot_volume_gb # 200 GB
   }
 
   # Network configuration — put it in our subnet with a public IP

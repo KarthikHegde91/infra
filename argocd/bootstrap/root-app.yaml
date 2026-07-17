@@ -1,0 +1,34 @@
+# Root "app of apps" — the ONE Application applied by hand, exactly once.
+#
+# ArgoCD watches k8s/apps/ in this repo; every file there is a child
+# Application (monitoring, uptime-kuma, cloudflared). Add a file to
+# k8s/apps/ and ArgoCD creates the app. Delete the file and the app is
+# pruned. Everything else is `git push`.
+#
+# Bootstrap + adoption notes: see argocd/README.md
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+  finalizers:
+    # Deleting the root app cascades cleanly instead of orphaning children.
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    # Same URL the child apps use — one repo credential covers everything.
+    # (Public repo: https://github.com/KarthikHegde91/infra.git works
+    # anonymously too, but keep root + children on ONE consistent URL.)
+    repoURL: git@github.com:KarthikHegde91/infra.git
+    targetRevision: main
+    path: k8s/apps
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true # file removed from k8s/apps/ → child Application removed
+      selfHeal: true # manual edits to child Applications revert to Git
+    syncOptions:
+      - CreateNamespace=true
