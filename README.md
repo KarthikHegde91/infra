@@ -2,6 +2,7 @@
 
 Infrastructure-as-code and GitOps manifests for a production-grade platform running **entirely on free-tier services** — total run cost **$0/month**. This is the infrastructure behind [karthikhegde.in](https://karthikhegde.in): a single-node **K3s** cluster on Oracle Cloud's Always-Free ARM tier, fronted by a **Cloudflare Tunnel** (zero-trust, no open ports) and monitored with **Prometheus + VictoriaMetrics + Grafana**.
 
+[![validate](https://github.com/KarthikHegde91/infra/actions/workflows/validate.yml/badge.svg)](https://github.com/KarthikHegde91/infra/actions/workflows/validate.yml)
 ![Cost](https://img.shields.io/badge/monthly_cost-%240-brightgreen)
 ![K3s](https://img.shields.io/badge/kubernetes-K3s-blue)
 ![GitOps](https://img.shields.io/badge/GitOps-ArgoCD-ef7b4d)

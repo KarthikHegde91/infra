@@ -1,0 +1,43 @@
+# CI half of GitOps: every push/PR is linted and schema-validated BEFORE
+# ArgoCD ever sees it on main. Red here = don't merge.
+name: validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  yaml-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: yamllint
+        uses: ibiqlik/action-yamllint@v3
+        with:
+          config_data: |
+            extends: default
+            rules:
+              line-length: disable
+              document-start: disable
+              truthy: disable        # GitHub workflows' `on:` key trips it
+              comments-indentation: disable
+
+  kube-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Kubernetes manifests (kubeconform)
+        uses: docker://ghcr.io/yannh/kubeconform:latest
+        with:
+          # argocd/ + k8s/ only — bootstrap/cloud-init.yaml is not a k8s manifest.
+          # -ignore-missing-schemas: ArgoCD Application CRDs have no upstream schema.
+          args: "-strict -ignore-missing-schemas -summary argocd k8s"
+
+  terraform-fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - name: terraform fmt check
+        run: terraform -chdir=terraform fmt -check -recursive -diff
