@@ -10,6 +10,10 @@ metadata:
   namespace: monitoring
 spec:
   replicas: 1
+  # RWO volume can only attach to one pod at a time, so replace the old pod
+  # before starting the new one (avoids a Multi-Attach wedge on rollout).
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: grafana
@@ -50,11 +54,36 @@ spec:
               readOnly: true
           resources:
             requests:
-              memory: "128Mi"
+              memory: "256Mi"
               cpu: "100m"
             limits:
-              memory: "256Mi"
-              cpu: "200m"
+              # 256Mi OOMKilled Grafana; 1Gi is safe on this 24GB node and
+              # removes memory as a failure variable.
+              memory: "1Gi"
+              cpu: "500m"
+          # Exercise Grafana's own health endpoint. Without probes a pod that
+          # isn't actually serving still counts as a Service endpoint, so
+          # cloudflared connects and hangs (the 20s timeout on the public URL).
+          # startupProbe gives Grafana time to boot; readiness pulls a bad pod
+          # out of the Service (fast 502, not a hang); liveness restarts a hang.
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            periodSeconds: 10
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            periodSeconds: 20
+            failureThreshold: 3
       volumes:
         - name: data
           persistentVolumeClaim:
