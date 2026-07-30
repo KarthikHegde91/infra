@@ -1,0 +1,55 @@
+name: oci-arm-grabber
+# Temporary recovery workflow: retries launching the k3s node from its preserved
+# boot volume until OCI frees up Always-Free ARM capacity in ap-mumbai-1.
+# Remove this file once the node is back up.
+on:
+  schedule:
+    - cron: '*/10 * * * *'   # try every 10 minutes
+  workflow_dispatch:          # and a manual "Run workflow" button
+concurrency:
+  group: oci-grabber
+  cancel-in-progress: false
+jobs:
+  grab:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install OCI CLI
+        run: pip install --quiet oci-cli
+      - name: Configure OCI auth
+        env:
+          OCI_KEY_PEM: ${{ secrets.OCI_KEY_PEM }}
+          OCI_CONFIG: ${{ secrets.OCI_CONFIG }}
+        run: |
+          mkdir -p ~/.oci
+          printf '%s\n' "$OCI_KEY_PEM" > ~/.oci/key.pem
+          printf '%s\n' "$OCI_CONFIG"  > ~/.oci/config
+          chmod 600 ~/.oci/key.pem ~/.oci/config
+      - name: Skip if instance already exists
+        id: check
+        run: |
+          COUNT=$(oci compute instance list \
+            --compartment-id 'ocid1.tenancy.oc1..aaaaaaaavd4nmrvlewa7vfglnz7rxkrcgkz6gdiaw44qk6yu4t6rc4vm6nzq' \
+            --query "length(data[?\"display-name\"=='k3s-node-recovered' && \"lifecycle-state\"!='TERMINATED'])" \
+            --raw-output 2>/dev/null || echo 0)
+          echo "count=$COUNT"
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+      - name: Attempt launch
+        if: steps.check.outputs.count == '0'
+        run: |
+          set +e
+          oci compute instance launch \
+            --availability-domain 'KSrE:AP-MUMBAI-1-AD-1' \
+            --compartment-id 'ocid1.tenancy.oc1..aaaaaaaavd4nmrvlewa7vfglnz7rxkrcgkz6gdiaw44qk6yu4t6rc4vm6nzq' \
+            --shape 'VM.Standard.A1.Flex' \
+            --shape-config '{"ocpus":1,"memoryInGBs":6}' \
+            --source-boot-volume-id 'ocid1.bootvolume.oc1.ap-mumbai-1.abrg6ljrajsuf35oxchrbtcs2ftolzfutc3aanlkghc5wpe5jwzbv3odw2kq' \
+            --subnet-id 'ocid1.subnet.oc1.ap-mumbai-1.aaaaaaaaaos5mg55ymml257u5ueyg34dyp6pievbaukyez4j5ayn5luoufwa' \
+            --assign-public-ip true \
+            --display-name 'k3s-node-recovered' \
+            --metadata '{"ssh_authorized_keys":"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMujWLWAbdZfD5E0uDiHMSkUNRspUArHM+ZQ5bxfZDpN karthik-newlaptop-oci"}'
+          RC=$?
+          if [ $RC -eq 0 ]; then echo "::notice::LAUNCH SUCCEEDED - instance is provisioning"; else echo "::notice::no capacity yet (rc=$RC) - retry next run"; fi
+          exit 0
+      - name: Already up
+        if: steps.check.outputs.count != '0'
+        run: echo "::notice::k3s-node-recovered already exists - nothing to do"
