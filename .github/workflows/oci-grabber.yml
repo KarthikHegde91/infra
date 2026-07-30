@@ -30,7 +30,8 @@ jobs:
           COUNT=$(oci compute instance list \
             --compartment-id 'ocid1.tenancy.oc1..aaaaaaaavd4nmrvlewa7vfglnz7rxkrcgkz6gdiaw44qk6yu4t6rc4vm6nzq' \
             --query "length(data[?\"display-name\"=='k3s-node-recovered' && \"lifecycle-state\"!='TERMINATED'])" \
-            --raw-output 2>/dev/null || echo 0)
+            --raw-output 2>/dev/null)
+          [ -z "$COUNT" ] && COUNT=0
           echo "count=$COUNT"
           echo "count=$COUNT" >> "$GITHUB_OUTPUT"
       - name: Attempt launch
