@@ -49,7 +49,9 @@ jobs:
           AD='KSrE:AP-MUMBAI-1-AD-1'
           SUBNET='ocid1.subnet.oc1.ap-mumbai-1.aaaaaaaaaos5mg55ymml257u5ueyg34dyp6pievbaukyez4j5ayn5luoufwa'
           BVID='ocid1.bootvolume.oc1.ap-mumbai-1.abrg6ljrajsuf35oxchrbtcs2ftolzfutc3aanlkghc5wpe5jwzbv3odw2kq'
-          oci compute instance launch --availability-domain "$AD" --compartment-id "$CID" --shape VM.Standard.A1.Flex --shape-config '{"ocpus":1,"memoryInGBs":6}' --source-boot-volume-id "$BVID" --subnet-id "$SUBNET" --assign-public-ip true --display-name k3s-node-live --metadata '{"ssh_authorized_keys":"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMujWLWAbdZfD5E0uDiHMSkUNRspUArHM+ZQ5bxfZDpN karthik-newlaptop-oci"}' --wait-for-state RUNNING
+          echo 'I2Nsb3VkLWNvbmZpZwpib290Y21kOgogIC0gaW5zdGFsbCAtZCAtbSA3MDAgLW8gdWJ1bnR1IC1nIHVidW50dSAvaG9tZS91YnVudHUvLnNzaAogIC0gc2ggLWMgImdyZXAgLXF4RiAnc3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSU11aldMV0FiZFpmRDVFMHVEaUhNU2tVTlJzcFVBckhNK1pRNWJ4ZlpEcE4ga2FydGhpay1uZXdsYXB0b3Atb2NpJyAvaG9tZS91YnVudHUvLnNzaC9hdXRob3JpemVkX2tleXMgMj4vZGV2L251bGwgfHwgZWNobyAnc3NoLWVkMjU1MTkgQUFBQUMzTnphQzFsWkRJMU5URTVBQUFBSU11aldMV0FiZFpmRDVFMHVEaUhNU2tVTlJzcFVBckhNK1pRNWJ4ZlpEcE4ga2FydGhpay1uZXdsYXB0b3Atb2NpJyA+PiAvaG9tZS91YnVudHUvLnNzaC9hdXRob3JpemVkX2tleXMiCiAgLSBjaG93biB1YnVudHU6dWJ1bnR1IC9ob21lL3VidW50dS8uc3NoL2F1dGhvcml6ZWRfa2V5cwogIC0gY2htb2QgNjAwIC9ob21lL3VidW50dS8uc3NoL2F1dGhvcml6ZWRfa2V5cwo=' | base64 -d > /tmp/ud.yaml
+          echo "--- user-data ---"; cat /tmp/ud.yaml
+          oci compute instance launch --availability-domain "$AD" --compartment-id "$CID" --shape VM.Standard.A1.Flex --shape-config '{"ocpus":1,"memoryInGBs":6}' --source-boot-volume-id "$BVID" --subnet-id "$SUBNET" --assign-public-ip true --display-name k3s-node-live --metadata '{"ssh_authorized_keys":"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMujWLWAbdZfD5E0uDiHMSkUNRspUArHM+ZQ5bxfZDpN karthik-newlaptop-oci"}' --user-data-file /tmp/ud.yaml --wait-for-state RUNNING
       - name: Print new public IP
         run: |
           CID='ocid1.tenancy.oc1..aaaaaaaavd4nmrvlewa7vfglnz7rxkrcgkz6gdiaw44qk6yu4t6rc4vm6nzq'
