@@ -1,0 +1,60 @@
+name: oci-recover
+# One-shot clean re-launch: terminate the current instance (PRESERVING the boot
+# volume / all data), then relaunch from that same disk with the SSH key injected
+# via cloud-init. The disk already pins node-name=k3s-node, so it comes up with
+# the right identity (volumes match, pods schedule) and no rename churn.
+# Manual trigger only. Remove after use.
+on:
+  workflow_dispatch:
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Install OCI CLI
+        run: pip install --quiet oci-cli
+      - name: Configure OCI auth
+        env:
+          OCI_KEY_PEM: ${{ secrets.OCI_KEY_PEM }}
+          OCI_CONFIG: ${{ secrets.OCI_CONFIG }}
+        run: |
+          mkdir -p ~/.oci
+          printf '%s\n' "$OCI_KEY_PEM" > ~/.oci/key.pem
+          printf '%s\n' "$OCI_CONFIG"  > ~/.oci/config
+          chmod 600 ~/.oci/key.pem ~/.oci/config
+      - name: Terminate current instance (preserve boot volume)
+        run: |
+          set -eu
+          CID='ocid1.tenancy.oc1..aaaaaaaavd4nmrvlewa7vfglnz7rxkrcgkz6gdiaw44qk6yu4t6rc4vm6nzq'
+          IID=$(oci compute instance list --compartment-id "$CID" --lifecycle-state RUNNING --query "data[?\"display-name\"=='k3s-node-recovered'].id | [0]" --raw-output 2>/dev/null || true)
+          echo "running k3s-node-recovered = '$IID'"
+          if [ -n "$IID" ] && [ "$IID" != "null" ]; then
+            oci compute instance terminate --instance-id "$IID" --preserve-boot-volume true --force --wait-for-state SUCCEEDED
+            echo "terminated."
+          else
+            echo "nothing running to terminate; continuing."
+          fi
+      - name: Wait for boot volume AVAILABLE
+        run: |
+          BVID='ocid1.bootvolume.oc1.ap-mumbai-1.abrg6ljrajsuf35oxchrbtcs2ftolzfutc3aanlkghc5wpe5jwzbv3odw2kq'
+          for i in $(seq 1 30); do
+            st=$(oci bv boot-volume get --boot-volume-id "$BVID" --query 'data."lifecycle-state"' --raw-output)
+            echo "bootvol=$st"; [ "$st" = "AVAILABLE" ] && exit 0; sleep 10
+          done
+          echo "boot volume never became AVAILABLE"; exit 1
+      - name: Relaunch from boot volume with SSH key
+        run: |
+          set -eu
+          CID='ocid1.tenancy.oc1..aaaaaaaavd4nmrvlewa7vfglnz7rxkrcgkz6gdiaw44qk6yu4t6rc4vm6nzq'
+          AD='KSrE:AP-MUMBAI-1-AD-1'
+          SUBNET='ocid1.subnet.oc1.ap-mumbai-1.aaaaaaaaaos5mg55ymml257u5ueyg34dyp6pievbaukyez4j5ayn5luoufwa'
+          BVID='ocid1.bootvolume.oc1.ap-mumbai-1.abrg6ljrajsuf35oxchrbtcs2ftolzfutc3aanlkghc5wpe5jwzbv3odw2kq'
+          printf '#cloud-config\nssh_authorized_keys:\n  - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMujWLWAbdZfD5E0uDiHMSkUNRspUArHM+ZQ5bxfZDpN karthik-newlaptop-oci\n' > /tmp/ud.yaml
+          echo "--- user-data ---"; cat /tmp/ud.yaml
+          oci compute instance launch --availability-domain "$AD" --compartment-id "$CID" --shape VM.Standard.A1.Flex --shape-config '{"ocpus":1,"memoryInGBs":6}' --source-boot-volume-id "$BVID" --subnet-id "$SUBNET" --assign-public-ip true --display-name k3s-node-live --user-data-file /tmp/ud.yaml --wait-for-state RUNNING
+      - name: Print new public IP
+        run: |
+          CID='ocid1.tenancy.oc1..aaaaaaaavd4nmrvlewa7vfglnz7rxkrcgkz6gdiaw44qk6yu4t6rc4vm6nzq'
+          NID=$(oci compute instance list --compartment-id "$CID" --lifecycle-state RUNNING --query "data[?\"display-name\"=='k3s-node-live'].id | [0]" --raw-output)
+          echo "new instance = $NID"
+          echo "NEW_PUBLIC_IP=$(oci compute instance list-vnics --instance-id "$NID" --query 'data[0]."public-ip"' --raw-output)"
