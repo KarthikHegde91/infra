@@ -27,11 +27,18 @@ data:
         static_configs:
           - targets: ["localhost:9090"]
 
-      # Monitor host system via node_exporter
+      # Monitor host system via node_exporter — auto-discover the node's
+      # current IP via the K8s API and scrape it on :9100, so this survives
+      # instance relaunches (no hardcoded IP to go stale).
       - job_name: "node-exporter"
-        static_configs:
-          # Set to your K3s node's internal VCN IP (e.g. 10.0.x.x)
-          - targets: ["NODE_INTERNAL_IP:9100"]
+        scheme: http
+        kubernetes_sd_configs:
+          - role: node
+        relabel_configs:
+          - source_labels: [__address__]
+            regex: '([^:]+):.*'
+            target_label: __address__
+            replacement: '${1}:9100'
 
       # Monitor all K8s nodes (the VM itself)
       # Collects: CPU, memory, disk, network metrics
