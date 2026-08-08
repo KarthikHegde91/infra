@@ -56,16 +56,53 @@ variable "vm_shape" {
   # "Flex" means you can choose how many CPUs and how much RAM
 }
 
+# ----------------------------------------------------------------------
+# $0 GUARDRAILS — read before changing anything below.
+#
+# This tenancy is Pay As You Go, not Always Free. The Always Free
+# ALLOWANCES still apply and still cost nothing — but the safety net is
+# gone. On Always Free, asking for more than the allowance simply FAILS.
+# On PAYG the identical request SUCCEEDS and starts billing, silently.
+#
+# Free allowances are TENANCY-WIDE totals, not per-instance:
+#   Ampere A1 compute   4 OCPU + 24 GB RAM   across ALL A1 instances
+#   Block storage       200 GB               across ALL volumes,
+#                                            boot volumes included
+#   Outbound transfer   10 TB / month
+#
+# What that means for this stack:
+#   - The defaults below are 3 OCPU / 18 GB — deliberately UNDER the 4/24
+#     ceiling. Still $0, still triple the CPU the Jul 2026 recovery left
+#     this node at, and it holds 1 OCPU / 6 GB of allowance in reserve.
+#     That reserve is the point: a future recovery can stand a replacement
+#     instance up ALONGSIDE this one without crossing into billing.
+#   - Taking the full 4 OCPU / 24 GB is also $0, but it consumes the entire
+#     tenancy allowance, so any second A1 instance bills from hour one.
+#     The spare OCPU is cheap insurance against the exact failure mode that
+#     caused five days of downtime in Jul 2026.
+#   - boot_volume_gb = 200 sits exactly ON the storage cap, leaving no room
+#     for a second volume. Preserving this boot volume and launching a
+#     replacement — the Jul 2026 recovery pattern, which
+#     preserve_boot_volume = true in compute.tf now makes more likely —
+#     puts ~200 GB over the cap and bills until the orphan is deleted.
+#     Delete the old volume promptly, or drop this to 100 GB on the next
+#     rebuild so preserved + replacement both fit inside the cap.
+#   - A second A1 instance is free only while the TOTAL stays within 4/24.
+#
+# Set an OCI Budget alert at $1. It is free to configure and it is the only
+# thing that will actually tell you when one of the above stops holding.
+# ----------------------------------------------------------------------
+
 variable "vm_ocpus" {
-  description = "Number of OCPUs (ARM cores) — Always Free allows up to 4"
+  description = "Number of OCPUs (ARM cores) — free up to 4 tenancy-wide; 3 leaves one spare for a recovery instance"
   type        = number
-  default     = 4
+  default     = 3
 }
 
 variable "vm_memory_gb" {
-  description = "RAM in GB — Always Free allows up to 24GB"
+  description = "RAM in GB — free up to 24 tenancy-wide; 18 leaves 6 spare for a recovery instance"
   type        = number
-  default     = 24
+  default     = 18
 }
 
 variable "boot_volume_gb" {

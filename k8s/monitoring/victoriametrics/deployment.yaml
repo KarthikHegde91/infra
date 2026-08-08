@@ -37,13 +37,54 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /victoria-metrics-data
+          # VictoriaMetrics is frugal: this ingest rate (4 scrape jobs, 30s
+          # interval, one node) sits well inside 384Mi. The node is
+          # 3 OCPU / 18 GB (see terraform/variables.tf), so the tight limit is
+          # a guardrail on this pod's growth rather than a rationing decision,
+          # and the narrow request/limit spread keeps it off the top of the
+          # eviction list.
           resources:
             requests:
-              memory: "128Mi"
+              memory: "192Mi"
               cpu: "100m"
             limits:
-              memory: "512Mi"
-              cpu: "250m"
+              memory: "384Mi"
+              # No cpu limit — see the reasoning in grafana/deployment.yaml.
+          # VictoriaMetrics exposes a single /health endpoint (unlike Prometheus
+          # it has no separate ready/healthy split), so all three probes share
+          # it and the thresholds carry the distinction instead.
+          #
+          # Readiness matters more here than it looks: Prometheus remote_writes
+          # into this pod. If VM stops serving, readiness pulls it from the
+          # Service and Prometheus buffers to its WAL and retries — data is
+          # delayed, not lost. Without a readiness probe those writes would hang
+          # against a dead endpoint, the same failure that took Grafana down.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8428
+            periodSeconds: 10
+            timeoutSeconds: 5
+            # 300s — opening 6 months of storage on a cold start is not instant.
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8428
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8428
+            periodSeconds: 30
+            timeoutSeconds: 5
+            # Slack (150s) on purpose — this pod holds the 6-month retention.
+            # A restart during a background merge is a worse outcome than a
+            # slow health reply, so liveness only catches a truly wedged
+            # process.
+            failureThreshold: 5
       volumes:
         - name: data
           persistentVolumeClaim:

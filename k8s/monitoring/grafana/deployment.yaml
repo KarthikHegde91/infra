@@ -52,37 +52,64 @@ spec:
             - name: dashboards
               mountPath: /var/lib/grafana/dashboards
               readOnly: true
+          # Sized to what Grafana actually uses, not to what the node can spare.
+          # The node is 3 OCPU / 18 GB (see terraform/variables.tf), so these
+          # limits exist to catch a runaway pod early — not to ration a scarce
+          # node.
           resources:
             requests:
-              memory: "256Mi"
+              # Request sits close to the limit on purpose. Burstable pods are
+              # evicted in order of usage ABOVE request, so the old 256Mi/1Gi
+              # spread — 768Mi of unbacked headroom, the widest in the cluster —
+              # nominated Grafana as the first eviction victim whenever the node
+              # came under pressure. 256Mi of spread absorbs a dashboard render
+              # without volunteering to die first.
+              memory: "384Mi"
               cpu: "100m"
             limits:
-              # 256Mi OOMKilled Grafana; 1Gi is safe on this 24GB node and
-              # removes memory as a failure variable.
-              memory: "1Gi"
-              cpu: "500m"
+              # 256Mi OOMKilled Grafana in Jul 2026; 640Mi is 2.5x that. Kept
+              # deliberately snug rather than raised to 1Gi: on a node with room
+              # to spare, a tight limit is what surfaces a memory leak early
+              # instead of letting it grow until it starts evicting neighbours.
+              memory: "640Mi"
+              # NO cpu limit, deliberately. A CPU limit is a CFS quota — it
+              # throttles the container even when cores are otherwise idle.
+              # Grafana capped at 500m stalled mid-request and then failed its
+              # own health probes: the cap caused the outage it was meant to
+              # survive. The cpu REQUEST above already provides proportional
+              # scheduling shares under contention, which is the behaviour
+              # actually wanted here.
           # Exercise Grafana's own health endpoint. Without probes a pod that
           # isn't actually serving still counts as a Service endpoint, so
           # cloudflared connects and hangs (the 20s timeout on the public URL).
           # startupProbe gives Grafana time to boot; readiness pulls a bad pod
           # out of the Service (fast 502, not a hang); liveness restarts a hang.
+          #
+          # timeoutSeconds is set explicitly on all three. It defaults to just
+          # 1 SECOND, and /api/health performs a SQLite check — on one shared
+          # core that can exceed a second under load, so the default would let
+          # liveness kill a Grafana that is merely slow, converting contention
+          # into a restart loop.
           startupProbe:
             httpGet:
               path: /api/health
               port: 3000
             periodSeconds: 10
+            timeoutSeconds: 5
             failureThreshold: 30
           readinessProbe:
             httpGet:
               path: /api/health
               port: 3000
             periodSeconds: 10
+            timeoutSeconds: 5
             failureThreshold: 3
           livenessProbe:
             httpGet:
               path: /api/health
               port: 3000
             periodSeconds: 20
+            timeoutSeconds: 5
             failureThreshold: 3
       volumes:
         - name: data

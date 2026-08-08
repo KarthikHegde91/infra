@@ -44,7 +44,10 @@ spec:
               cpu: "50m"
             limits:
               memory: "128Mi"
-              cpu: "100m"
+              # No cpu limit — see the reasoning in grafana/deployment.yaml.
+              # This is the one process every public hostname depends on;
+              # throttling it to 100m on a contended core adds latency to
+              # grafana, status and argocd alike.
       volumes:
         - name: config
           configMap:

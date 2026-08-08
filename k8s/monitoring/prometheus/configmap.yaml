@@ -40,9 +40,39 @@ data:
             target_label: __address__
             replacement: '${1}:9100'
 
-      # Monitor all K8s nodes (the VM itself)
-      # Collects: CPU, memory, disk, network metrics
+      # Monitor the kubelet on each node.
+      #
+      # role: node sets __address__ to <node-ip>:10250 — the kubelet API.
+      # That endpoint is HTTPS and requires a bearer token. The previous
+      # config specified neither, so every scrape failed against a plain-HTTP
+      # request to an HTTPS port. Prometheus reports the job as DOWN; nothing
+      # else surfaces it, so it looked healthy from Grafana.
+      #
+      # insecure_skip_verify is required because the kubelet serves a
+      # self-signed cert whose SAN does not match the node IP we dial.
       - job_name: "kubernetes-nodes"
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          insecure_skip_verify: true
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        kubernetes_sd_configs:
+          - role: node
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+
+      # Per-container CPU / memory / network, served by cAdvisor which is
+      # embedded in the kubelet but on a DIFFERENT path than the job above.
+      # Without this job there are no container_* series at all, so every
+      # per-pod resource panel stays empty no matter how healthy the cluster is.
+      - job_name: "kubernetes-cadvisor"
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          insecure_skip_verify: true
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        metrics_path: /metrics/cadvisor
         kubernetes_sd_configs:
           - role: node
         relabel_configs:
@@ -59,8 +89,31 @@ data:
           - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
             action: keep
             regex: true
-          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_port]
+          # Honour prometheus.io/path when set; Prometheus defaults to /metrics
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
             action: replace
-            target_label: __address__
+            target_label: __metrics_path__
             regex: (.+)
-            replacement: ${1}
+          # Rewrite the target's PORT while keeping its HOST.
+          #
+          # The previous rule sourced only the port annotation and replaced
+          # __address__ wholesale with "${1}", so the target became the bare
+          # string "9090" with no host — an invalid address. Both labels have
+          # to be sourced together (joined by ";") and recombined, which is
+          # what the regex below does: capture the host from __address__,
+          # discard any existing :port, and append the annotated port.
+          - source_labels:
+              [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: '([^:]+)(?::\d+)?;(\d+)'
+            replacement: "$1:$2"
+            target_label: __address__
+          # Carry pod labels and identity through onto the series
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: kubernetes_namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: kubernetes_pod_name

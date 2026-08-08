@@ -1,9 +1,15 @@
 # compute.tf — The ARM VM (the actual server)
 #
-# This creates an Always Free ARM Ampere A1 instance with:
-# - 4 OCPUs (ARM cores)
-# - 24 GB RAM
-# - 200 GB boot volume
+# This creates an ARM Ampere A1 instance with:
+# - 3 OCPUs (ARM cores)   — of a 4 OCPU tenancy-wide free allowance
+# - 18 GB RAM             — of a 24 GB tenancy-wide free allowance
+# - 200 GB boot volume    — the ENTIRE free block-storage allowance
+#
+# The 1 OCPU / 6 GB left unclaimed is deliberate reserve, so a replacement
+# instance can be launched alongside this one during a recovery without
+# tipping the tenancy into billing. See terraform/variables.tf for the full
+# $0 guardrail notes — this account is Pay As You Go, so exceeding a free
+# allowance now bills silently instead of failing.
 # - Ubuntu 22.04
 # - K3s pre-installed via cloud-init
 #
@@ -50,8 +56,8 @@ resource "oci_core_instance" "k3s" {
 
   # How much CPU and RAM
   shape_config {
-    ocpus         = var.vm_ocpus     # 4 ARM cores
-    memory_in_gbs = var.vm_memory_gb # 24 GB RAM
+    ocpus         = var.vm_ocpus     # 3 ARM cores
+    memory_in_gbs = var.vm_memory_gb # 18 GB RAM
   }
 
   # What OS to install and how big the disk should be
@@ -81,5 +87,26 @@ resource "oci_core_instance" "k3s" {
     # ${path.module} = the directory where this .tf file lives (terraform/)
     # ../ goes up one level to infra/
     # So it reads infra/bootstrap/cloud-init.yaml
+  }
+
+  # Keep the disk if this instance is ever destroyed.
+  # The OCI provider defaults this to FALSE, which deletes the 200GB boot
+  # volume on terminate — and with it every local-path PV: Grafana, Prometheus,
+  # VictoriaMetrics' 6-month retention, and Uptime Kuma's history. The July 2026
+  # recovery only worked because the terminate was done by hand with
+  # --preserve-boot-volume; Terraform would not have done that.
+  preserve_boot_volume = true
+
+  lifecycle {
+    # source_id resolves to "newest Ubuntu 22.04 ARM image" at plan time
+    # (see the data source above) and Canonical republishes roughly monthly.
+    # source_id forces replacement, so an otherwise-unrelated `terraform apply`
+    # months later would plan destroy + recreate of this VM purely because a
+    # newer image exists — losing the disk, then re-entering the Always Free
+    # ARM capacity lottery that caused five days of downtime in July 2026.
+    #
+    # Pin the instance to the image it was built from. Changing the OS image
+    # should be a deliberate, planned rebuild — never a side effect.
+    ignore_changes = [source_details[0].source_id]
   }
 }

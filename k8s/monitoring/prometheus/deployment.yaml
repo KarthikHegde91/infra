@@ -40,13 +40,50 @@ spec:
               mountPath: /etc/prometheus
             - name: data
               mountPath: /prometheus
+          # Node is 3 OCPU / 18 GB (see terraform/variables.tf). These limits
+          # bound this pod's growth; they are not rationing a scarce node.
           resources:
             requests:
               memory: "256Mi"
               cpu: "100m"
             limits:
               memory: "512Mi"
-              cpu: "250m"
+              # No cpu limit — see the reasoning in grafana/deployment.yaml. A
+              # CFS quota throttles scrapes and remote_write flushes into each
+              # other, which shows up as gaps in the very metrics this pod
+              # exists to collect.
+          # Prometheus exposes two DIFFERENT health endpoints, and the split
+          # matters: /-/healthy means "the process is alive", /-/ready means
+          # "ready to serve queries". Using /-/healthy for liveness is what
+          # stops a restart loop during a slow WAL replay — the process is
+          # healthy the whole time, just not ready yet.
+          startupProbe:
+            httpGet:
+              path: /-/ready
+              port: 9090
+            periodSeconds: 10
+            timeoutSeconds: 5
+            # 300s. Replaying the write-ahead log after an unclean shutdown is
+            # the slow path, and on one core it is slower still.
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 9090
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: 9090
+            periodSeconds: 30
+            timeoutSeconds: 5
+            # Deliberately slack (150s) compared to Grafana's. This is a
+            # storage engine: killing it mid-compaction costs more than
+            # tolerating a slow reply, so liveness here is a last resort for a
+            # genuinely wedged process, not a latency alarm.
+            failureThreshold: 5
       volumes:
         - name: config
           configMap:

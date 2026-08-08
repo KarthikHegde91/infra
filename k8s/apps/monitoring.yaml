@@ -16,7 +16,19 @@ spec:
     repoURL: git@github.com:KarthikHegde91/infra.git
     targetRevision: main
     path: k8s/monitoring
-    # ArgoCD will apply ALL yaml files in this directory
+    # ArgoCD's directory source is NON-recursive by default. This path holds
+    # only namespace.yaml at its top level — grafana/, prometheus/ and
+    # victoriametrics/ are subdirectories. Without recurse: true, ArgoCD syncs
+    # the namespace and nothing else, and every manifest below is silently
+    # unmanaged while the Application still reports Synced.
+    #
+    # That is what hid the Aug 2026 Grafana outage: 83f7055 (memory limit +
+    # health probes) and 8367069 (node-exporter service discovery) both landed
+    # in git and never reached the cluster, because both edit files inside
+    # subdirectories. The one monitoring file ArgoCD ever did apply was
+    # ssh-recovery-job.yaml — the only one at the top level.
+    directory:
+      recurse: true
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring
