@@ -124,4 +124,17 @@ spec:
         - name: dashboards
           hostPath:
             path: /opt/grafana/dashboards
-            type: Directory
+            # DirectoryOrCreate, not Directory. Nothing in this repo creates
+            # /opt/grafana/dashboards — it was made by hand on the node and is
+            # the one un-codified dependency left in the stack. With
+            # `type: Directory`, a node where that path is absent fails the
+            # mount and the pod stays in ContainerCreating FOREVER: never
+            # Running, never an endpoint, so the public URL serves a permanent
+            # 502 with no crash and no restart to point at.
+            #
+            # DirectoryOrCreate degrades instead: kubelet creates an empty
+            # directory, Grafana starts, and the only loss is the provisioned
+            # home dashboard (GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH above),
+            # which logs a warning rather than failing startup. A missing
+            # dashboard is a far better failure than an unreachable Grafana.
+            type: DirectoryOrCreate

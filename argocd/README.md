@@ -45,12 +45,28 @@ Pre-flight checks before applying the root app to a live cluster:
 # applied k8s/apps/*.yaml, so the children are probably already there)
 kubectl -n argocd get applications
 
-# Repo access: the manifests use the SSH URL, which needs a repo credential
-# in ArgoCD even for a public repo. Check it's connected:
+# Repo access: the manifests use the public HTTPS URL, so ArgoCD reads the
+# repo anonymously and NO repo credential is required. This should be empty,
+# and that is fine:
 argocd repo list
-# ...or register it: argocd repo add git@github.com:KarthikHegde91/infra.git \
-#      --ssh-private-key-path ~/.ssh/<deploy-key>
 ```
 
-If the child Applications show `Unknown` / `ComparisonError`, it's almost
-always the repo credential missing — fix that before expecting syncs.
+This used to be the SSH URL with a deploy key, which is what made a lapsed
+credential able to stop every sync silently. If child Applications show
+`Unknown` / `ComparisonError`, confirm the Application still points at
+`https://github.com/...` — a stale `git@github.com:...` in the live object is
+the thing to look for, since changing it in Git cannot fix it (see below).
+
+### The bootstrap exception
+
+Changing `repoURL` in Git is circular for the root app: ArgoCD can only pick up
+the change by reading the repo it cannot read. If root is stuck on an SSH URL
+whose key no longer works, repoint the live object by hand, once:
+
+```bash
+kubectl -n argocd patch application root --type merge \
+  -p '{"spec":{"source":{"repoURL":"https://github.com/KarthikHegde91/infra.git"}}}'
+```
+
+Root then syncs `k8s/apps/`, and the child Applications inherit the HTTPS URL
+from Git automatically.

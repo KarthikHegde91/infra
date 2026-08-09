@@ -17,10 +17,16 @@ metadata:
 spec:
   project: default
   source:
-    # Same URL the child apps use — one repo credential covers everything.
-    # (Public repo: https://github.com/KarthikHegde91/infra.git works
-    # anonymously too, but keep root + children on ONE consistent URL.)
-    repoURL: git@github.com:KarthikHegde91/infra.git
+    # HTTPS, not SSH. This repo is PUBLIC, so ArgoCD reads it anonymously and
+    # needs NO repo credential at all. Root and children are still on one
+    # consistent URL — it is simply the URL that carries nothing that can
+    # expire, be revoked, or go missing after a rebuild.
+    #
+    # This was git@github.com:... (f2ab158) only to keep the URLs consistent.
+    # An SSH deploy key buys nothing on a public repo, and when it lapses every
+    # sync stops silently: children sit in Unknown/ComparisonError while the
+    # cluster quietly drifts from Git (see argocd/README.md).
+    repoURL: https://github.com/KarthikHegde91/infra.git
     targetRevision: main
     path: k8s/apps
   destination:

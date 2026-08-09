@@ -13,7 +13,9 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: git@github.com:KarthikHegde91/infra.git
+    # HTTPS on a public repo — ArgoCD needs no repo credential to read it.
+    # See argocd/bootstrap/root-app.yaml for why this is not the SSH URL.
+    repoURL: https://github.com/KarthikHegde91/infra.git
     targetRevision: main
     path: k8s/monitoring
     # ArgoCD's directory source is NON-recursive by default. This path holds
