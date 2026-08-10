@@ -43,7 +43,12 @@ spec:
       serviceAccountName: prometheus
       containers:
         - name: prometheus
-          image: prom/prometheus:latest
+          # Pinned — full reasoning in grafana/deployment.yaml. A floating tag
+          # makes the running version depend on restart timing rather than on
+          # this repo, and TSDB format changes are forward-only: an unplanned
+          # major jump cannot be undone by editing this line back.
+          image: prom/prometheus:v3.13.2
+          imagePullPolicy: IfNotPresent
           args:
             - --config.file=/etc/prometheus/prometheus.yml
             - --storage.tsdb.path=/prometheus

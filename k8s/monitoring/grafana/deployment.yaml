@@ -24,7 +24,31 @@ spec:
     spec:
       containers:
         - name: grafana
-          image: grafana/grafana:latest
+          # Pinned, not :latest. Two things follow from a floating tag, and
+          # only the first is obvious.
+          #
+          # 1. The running version becomes a function of WHEN a pod happened to
+          #    restart, not of anything in this repo. Recovering the Aug 2026
+          #    outage restarted Grafana and silently moved it 13.1.1 -> 13.1.3.
+          #    Nothing in git changed; the tag had moved underneath it.
+          # 2. Kubernetes defaults imagePullPolicy to Always for the `latest`
+          #    tag specifically. So every pod creation depends on Docker Hub
+          #    being reachable — during an outage, which is precisely when pods
+          #    are being recreated.
+          #
+          # The stakes are higher here than for the other two: Grafana runs
+          # one-way SQLite schema migrations against grafana.db on startup. If a
+          # floating tag crosses a major version, editing this file back does
+          # NOT revert the database — the older binary then refuses to open it,
+          # and the only rollback is a backup someone remembered to take.
+          #
+          # Upgrading is now a reviewable one-line diff. Append @sha256:... to
+          # the tag if you want the stronger guarantee that even a re-pushed tag
+          # cannot change the bits.
+          image: grafana/grafana:13.1.3
+          # Explicit, though it is already the default for a pinned tag. Stated
+          # so the guarantee survives someone editing the tag above.
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3000
           env:

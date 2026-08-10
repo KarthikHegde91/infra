@@ -33,7 +33,12 @@ spec:
     spec:
       containers:
         - name: victoriametrics
-          image: victoriametrics/victoria-metrics:latest
+          # Pinned — full reasoning in grafana/deployment.yaml. This pod holds
+          # the 6-month retention store (--retentionPeriod below) and
+          # VictoriaMetrics migrates its on-disk format forward-only, so of the
+          # three a surprise version jump here is the least recoverable.
+          image: victoriametrics/victoria-metrics:v1.149.0
+          imagePullPolicy: IfNotPresent
           args:
             - --storageDataPath=/victoria-metrics-data
             - --retentionPeriod=6
