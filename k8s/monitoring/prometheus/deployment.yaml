@@ -14,6 +14,24 @@ metadata:
   namespace: monitoring
 spec:
   replicas: 1
+  # Recreate, for the same reason as grafana/deployment.yaml but with sharper
+  # consequences. The data volume is a ReadWriteOnce local-path PVC and
+  # Prometheus holds an exclusive lock on the TSDB directory.
+  #
+  # At replicas: 1 the default RollingUpdate is actively wrong: maxUnavailable
+  # 25% rounds DOWN to 0 and maxSurge 25% rounds UP to 1, so Kubernetes starts
+  # the NEW pod and waits for it to go Ready before stopping the old one. Both
+  # pods land on the same node, so RWO admits them both — there is no
+  # Multi-Attach error to point at. The new process simply finds /prometheus
+  # locked and exits, and the readinessProbe below guarantees it can never
+  # satisfy maxUnavailable: 0. That is a permanent deadlock, not a slow
+  # rollout: a CrashLoopBackOff pod beside a healthy old one, `rollout status`
+  # hanging forever, and ArgoCD stuck Progressing while remote_write keeps
+  # working — so nothing ever alerts.
+  #
+  # Recreate stops the old pod first and hands the lock over cleanly.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: prometheus

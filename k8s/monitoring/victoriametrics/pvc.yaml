@@ -8,6 +8,11 @@ kind: PersistentVolumeClaim
 metadata:
   name: victoriametrics-pvc
   namespace: monitoring
+  annotations:
+    # Prune=false — see grafana/pvc.yaml for the full reasoning. This is the
+    # 6-month retention store (--retentionPeriod=6); it is the longest-lived
+    # and least reproducible data in the cluster.
+    argocd.argoproj.io/sync-options: Prune=false
 spec:
   accessModes:
     - ReadWriteOnce

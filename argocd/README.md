@@ -70,3 +70,43 @@ kubectl -n argocd patch application root --type merge \
 
 Root then syncs `k8s/apps/`, and the child Applications inherit the HTTPS URL
 from Git automatically.
+
+### The other adoption trap: server-defaulted fields
+
+Adoption is a no-op only while Git and the live object agree. The first time a
+sync changes a field the API server had **defaulted**, `kubectl apply`'s
+three-way merge can produce an object that fails validation — and the whole
+Application goes `SyncFailed`, so nothing else in it reconciles either.
+
+The live case here is `k8s/monitoring/grafana/deployment.yaml`. It now asks for
+`strategy.type: Recreate`, but the running Deployment was created without any
+`strategy` block, so the API server filled in `RollingUpdate` *and* a
+`rollingUpdate: {maxSurge, maxUnavailable}` sub-object. Because
+`rollingUpdate` was never in `last-applied-configuration`, the merge has no
+reason to remove it; the patch only sets `type`, and the result is rejected:
+
+```
+Deployment.apps "grafana" is invalid: spec.strategy.rollingUpdate:
+Forbidden: may not be specified when strategy `type` is 'Recreate'
+```
+
+`ServerSideApply=true` does not help — `rollingUpdate` is owned by the field
+manager that created the object, not by the applier, so it survives the merge
+and hits the same validation. Clear it once, by hand, in the same patch that
+sets the type:
+
+```bash
+kubectl -n monitoring patch deploy grafana \
+  -p '{"spec":{"strategy":{"type":"Recreate","rollingUpdate":null}}}'
+```
+
+Do this **before** the first recursive sync. The same trap applies to
+`prometheus` and `victoriametrics`, which gained `strategy: Recreate` for the
+RWO-lock reason documented in their manifests:
+
+```bash
+for d in prometheus victoriametrics; do
+  kubectl -n monitoring patch deploy "$d" \
+    -p '{"spec":{"strategy":{"type":"Recreate","rollingUpdate":null}}}'
+done
+```

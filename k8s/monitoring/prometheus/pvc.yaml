@@ -3,6 +3,11 @@ kind: PersistentVolumeClaim
 metadata:
   name: prometheus-pvc
   namespace: monitoring
+  annotations:
+    # Prune=false — see grafana/pvc.yaml for the full reasoning. Holds the
+    # local 7-day TSDB and the write-ahead log that buffers remote_write when
+    # VictoriaMetrics is unavailable.
+    argocd.argoproj.io/sync-options: Prune=false
 spec:
   accessModes:
     - ReadWriteOnce

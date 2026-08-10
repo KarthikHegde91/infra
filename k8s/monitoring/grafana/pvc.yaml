@@ -1,8 +1,24 @@
+# PersistentVolumeClaim — holds grafana.db, Grafana's SQLite database.
+#
+# Every dashboard, user, org, API key and preference lives in this one file.
+# It is not reproducible from anything in this repo.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: grafana-pvc
   namespace: monitoring
+  annotations:
+    # Never prune this, even if the manifest leaves Git.
+    #
+    # Until now these objects were invisible to ArgoCD: monitoring.yaml had no
+    # `directory.recurse`, so nothing under k8s/monitoring/*/ was ever synced
+    # and therefore nothing here was ever tracked. Turning recurse on makes
+    # ArgoCD stamp this PVC with its tracking label, and from that moment
+    # `prune: true` in k8s/apps/monitoring.yaml applies to it: renaming or
+    # deleting this file would delete the claim and the database with it.
+    #
+    # Same annotation, same reasoning as k8s/charts/uptime-kuma/templates/pvc.yaml.
+    argocd.argoproj.io/sync-options: Prune=false
 spec:
   accessModes:
     - ReadWriteOnce

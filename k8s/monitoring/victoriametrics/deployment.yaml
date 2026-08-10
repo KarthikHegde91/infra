@@ -16,6 +16,13 @@ metadata:
   namespace: monitoring
 spec:
   replicas: 1
+  # Recreate — see the full reasoning in prometheus/deployment.yaml. Same
+  # shape: a ReadWriteOnce local-path PVC plus a single-writer lock, here the
+  # flock VictoriaMetrics takes on --storageDataPath. At replicas: 1 the
+  # default RollingUpdate starts the new pod first, it cannot take the lock,
+  # and the rollout deadlocks permanently instead of failing loudly.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: victoriametrics
