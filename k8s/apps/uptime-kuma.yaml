@@ -1,4 +1,13 @@
-# ArgoCD Application — Uptime Kuma
+# ArgoCD Application — Uptime Kuma (Helm chart)
+#
+# Previously this pointed at k8s/uptime-kuma/, a directory of raw manifests that
+# ArgoCD applied as-is. It now points at a Helm chart.
+#
+# ArgoCD detects Chart.yaml in the path and switches to its Helm source type
+# automatically. Important: it does NOT run `helm install`. It runs the
+# equivalent of `helm template` and applies the rendered YAML itself, so no Helm
+# release is stored in the cluster and `helm list` will show nothing. ArgoCD
+# remains the single source of truth for what is deployed.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -7,9 +16,30 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: git@github.com:KarthikHegde91/infra.git
+    # HTTPS on a public repo — ArgoCD needs no repo credential to read it.
+    # See argocd/bootstrap/root-app.yaml for why this is not the SSH URL.
+    repoURL: https://github.com/KarthikHegde91/infra.git
     targetRevision: main
-    path: k8s/uptime-kuma
+    path: k8s/charts/uptime-kuma
+    helm:
+      # Pinned explicitly rather than left to default.
+      #
+      # .Release.Name feeds the fullname helper, which produces the object names
+      # ("uptime-kuma", "uptime-kuma-pvc"). Those must match the objects already
+      # running in the cluster — a different release name renders different
+      # names, and ArgoCD would then create new objects and prune the old ones,
+      # including the PVC holding all uptime history.
+      releaseName: uptime-kuma
+      valueFiles:
+        - values.yaml
+      # Per-Application overrides go here. This is the payoff of the chart: the
+      # same templates can run with different settings without duplicating YAML.
+      #
+      # parameters:
+      #   - name: image.tag
+      #     value: "1.23.16"
+      #   - name: persistence.size
+      #     value: 10Gi
   destination:
     server: https://kubernetes.default.svc
     namespace: uptime-kuma

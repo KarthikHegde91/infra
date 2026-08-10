@@ -1,5 +1,10 @@
 # CI half of GitOps: every push/PR is linted and schema-validated BEFORE
 # ArgoCD ever sees it on main. Red here = don't merge.
+#
+# Helm note: a chart's templates/ are NOT valid YAML — they are Go templates
+# that happen to look like YAML ({{ .Values.foo }} is a syntax error to any
+# YAML parser). So the raw-manifest jobs below must skip k8s/charts/, and the
+# chart gets its own job that RENDERS it first and validates the output.
 name: validate
 
 on:
@@ -17,6 +22,8 @@ jobs:
         with:
           config_data: |
             extends: default
+            ignore: |
+              k8s/charts/*/templates/
             rules:
               line-length: disable
               document-start: disable
@@ -32,7 +39,40 @@ jobs:
         with:
           # argocd/ + k8s/ only — bootstrap/cloud-init.yaml is not a k8s manifest.
           # -ignore-missing-schemas: ArgoCD Application CRDs have no upstream schema.
-          args: "-strict -ignore-missing-schemas -summary argocd k8s"
+          # -ignore-filename-pattern: chart templates are unrendered Go templates;
+          #   the helm-validate job below checks them after rendering.
+          args: >-
+            -strict -ignore-missing-schemas -summary
+            -ignore-filename-pattern 'k8s/charts/.*'
+            argocd k8s
+
+  helm-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+
+      # `helm lint` catches chart-structural problems: malformed Chart.yaml,
+      # templates that fail to render, values referenced but never defined.
+      - name: helm lint
+        run: helm lint k8s/charts/uptime-kuma
+
+      - name: Install kubeconform
+        run: |
+          curl -sSLo kubeconform.tar.gz \
+            https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz
+          tar xf kubeconform.tar.gz kubeconform
+          sudo mv kubeconform /usr/local/bin/
+
+      # The step that actually matters. `helm lint` proves the chart is
+      # well-formed; it does NOT prove the rendered output is valid Kubernetes.
+      # Render with the same release name ArgoCD uses, then schema-check the
+      # result — this is what the cluster will really receive.
+      - name: helm template | kubeconform
+        run: |
+          helm template uptime-kuma k8s/charts/uptime-kuma \
+            | kubeconform -strict -ignore-missing-schemas -summary -
 
   terraform-fmt:
     runs-on: ubuntu-latest

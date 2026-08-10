@@ -1,0 +1,81 @@
+{{/*
+Deployment — Uptime Kuma itself.
+
+Uptime Kuma pings the services listed in its own config every 60s, records
+up/down history, and serves the public status page at status.karthikhegde.in
+through the Cloudflare Tunnel.
+
+Note what is templated and what is not. The image, resources, replica count and
+strategy are values because they are TUNING. The volume mount path (/app/data)
+and container port (3001) are hardcoded because they are facts about the
+upstream image — exposing them as knobs would imply they are safe to change,
+and they are not.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "uptime-kuma.fullname" . }}
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "uptime-kuma.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+
+  # IMMUTABLE FIELD. Rendered from the shared selectorLabels helper, which is
+  # deliberately just `app: uptime-kuma` to match the Deployment already running
+  # in the cluster. See _helpers.tpl for why deviating here breaks the sync.
+  selector:
+    matchLabels:
+      {{- include "uptime-kuma.selectorLabels" . | nindent 6 }}
+
+  # Uptime Kuma stores state in SQLite, which permits exactly one writer.
+  # Recreate terminates the old pod fully before starting the new one.
+  # RollingUpdate would briefly run two pods against one database file, and
+  # would additionally deadlock on the ReadWriteOnce volume (Multi-Attach) —
+  # the same failure mode already fixed for Grafana in commit 83f7055.
+  strategy:
+    type: {{ .Values.strategy }}
+
+  template:
+    metadata:
+      labels:
+        {{- include "uptime-kuma.labels" . | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            # Must match templates/pvc.yaml exactly, including the -pvc suffix.
+            claimName: {{ include "uptime-kuma.fullname" . }}-pvc
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

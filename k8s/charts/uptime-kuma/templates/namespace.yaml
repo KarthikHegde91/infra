@@ -1,0 +1,26 @@
+{{/*
+Namespace is rendered BY THE CHART, deliberately.
+
+Helm convention is usually to let the installer create the namespace
+(`helm install --create-namespace`, or ArgoCD's CreateNamespace=true), and to
+keep it out of the chart. Here that convention would be actively dangerous.
+
+Reason: the ArgoCD Application for this app has `syncPolicy.automated.prune: true`.
+Before this migration, `k8s/uptime-kuma/namespace.yaml` was part of the app's
+desired state, so ArgoCD owns that Namespace object. If the new chart stopped
+rendering it, ArgoCD would see a managed resource disappear from Git and prune it.
+
+Deleting a Namespace cascades to everything inside it — including the PVC holding
+every monitor and all uptime history. Silent, immediate, unrecoverable.
+
+So: keep rendering it. The namespace stays under the same management it was
+already under, and prune has nothing to remove.
+*/}}
+{{- if .Values.namespace.create }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.namespace.name }}
+  labels:
+    {{- include "uptime-kuma.labels" . | nindent 4 }}
+{{- end }}

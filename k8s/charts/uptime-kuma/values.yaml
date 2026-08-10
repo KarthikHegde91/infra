@@ -1,0 +1,70 @@
+# values.yaml — every setting that used to be hardcoded across four manifests
+# now lives here, in one place, with a default.
+#
+# This is the actual point of Helm: the templates describe SHAPE, this file
+# describes CONFIGURATION. To bump the image or grow the disk you edit one
+# line here instead of hunting through deployment.yaml and pvc.yaml.
+#
+# ArgoCD can also override any of these per-Application (see
+# k8s/apps/uptime-kuma.yaml), so the same chart could run twice with
+# different values without copy-pasting manifests.
+
+# Both empty = derive names from the chart name. Declared explicitly (rather
+# than left undefined) so `helm lint` and readers can see every key the
+# templates reference.
+nameOverride: ""
+fullnameOverride: ""
+
+replicaCount: 1
+
+image:
+  repository: louislam/uptime-kuma
+  # `latest` is a real anti-pattern: the running version silently changes on
+  # every pod restart, so a rollback target does not exist and "it worked
+  # yesterday" becomes unfalsifiable.
+  # It is kept here only to preserve current behaviour during the migration.
+  # Pin this to a released tag (and match appVersion in Chart.yaml).
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 3001
+
+# Uptime Kuma stores its history in SQLite on this volume. Losing it loses
+# every monitor and all uptime history, so it is a real PVC, not emptyDir.
+persistence:
+  enabled: true
+  storageClass: local-path  # K3s built-in local-path provisioner
+  accessMode: ReadWriteOnce
+  size: 5Gi
+
+# Sized for a small status page. The node is 3 OCPU / 18 GB (see
+# terraform/variables.tf) — deliberately under the 4/24 Always Free ceiling so
+# a recovery instance can be launched alongside it without incurring charges.
+resources:
+  requests:
+    memory: 128Mi
+    cpu: 50m
+  limits:
+    memory: 256Mi
+    # No cpu limit — a CPU limit is a CFS quota that throttles the container
+    # even when cores are otherwise idle. The cpu request already carries
+    # proportional scheduling weight under contention.
+
+# SQLite tolerates exactly one writer, so two pods must never run at once.
+# Recreate = terminate the old pod fully, THEN start the new one.
+# RollingUpdate would briefly run both and risk database corruption, and would
+# also deadlock on the ReadWriteOnce volume (Multi-Attach).
+strategy: Recreate
+
+# The namespace is rendered by this chart on purpose — see templates/namespace.yaml
+# for why removing it would be destructive under ArgoCD's prune policy.
+namespace:
+  create: true
+  name: uptime-kuma
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

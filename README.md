@@ -49,7 +49,8 @@ flowchart TD
 | IaC | **Terraform** (OCI + Cloudflare providers) | free |
 | Ingress / DNS / TLS | **Cloudflare Tunnel** (Zero Trust) | free plan |
 | Monitoring | **Prometheus + VictoriaMetrics + Grafana** | self-hosted |
-| Status page | **Uptime Kuma** | self-hosted |
+| Status page | **Uptime Kuma** (packaged as a **Helm** chart) | self-hosted |
+| Packaging | **Helm** — `k8s/charts/uptime-kuma`, rendered by ArgoCD | free |
 
 ---
 
@@ -74,13 +75,25 @@ flowchart TD
 │   └── validate.yml             # CI: yamllint + kubeconform + terraform fmt
 └── k8s/                         # Kubernetes manifests
     ├── apps/                    #   ArgoCD child Applications (watched by root app)
+    ├── charts/
+    │   └── uptime-kuma/         #   Helm chart — status page
+    │       ├── Chart.yaml       #     chart metadata + version
+    │       ├── values.yaml      #     all tunable settings, one place
+    │       └── templates/       #     manifests with {{ }} placeholders
     ├── cloudflared/             #   tunnel daemon (secret created manually)
-    ├── monitoring/
-    │   ├── prometheus/          #   scrape config + RBAC + storage
-    │   ├── victoriametrics/     #   long-term metric storage
-    │   └── grafana/             #   dashboards + provisioning
-    └── uptime-kuma/             #   status page
+    └── monitoring/
+        ├── prometheus/          #   scrape config + RBAC + storage
+        ├── victoriametrics/     #   long-term metric storage
+        └── grafana/             #   dashboards + provisioning
 ```
+
+**Raw manifests vs Helm:** most workloads here are plain YAML applied directly by
+ArgoCD — for a single static workload that is simpler and easier to read. Uptime
+Kuma is packaged as a Helm chart because packaging is what makes a workload
+*reusable*: config separates from shape, the whole thing carries a version, and
+the same templates can be deployed again with different values. ArgoCD renders
+the chart (`helm template`) and applies the result, so the GitOps flow is
+unchanged.
 
 ---
 

@@ -1,0 +1,30 @@
+{{/*
+Service — the stable in-cluster address cloudflared dials.
+
+The tunnel config in k8s/cloudflared/configmap.yaml routes
+status.karthikhegde.in to this Service by DNS name, so the object name
+("uptime-kuma") and port (3001) are a contract with that file. Changing either
+here breaks the public status page without any error appearing in this chart.
+
+The selector comes from the shared helper, which is the whole point: the
+Service's selector and the Deployment's pod labels are now generated from one
+definition and physically cannot drift apart. A selector that matches nothing
+produces a Service with zero endpoints — traffic blackholes, and nothing logs
+an error.
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "uptime-kuma.fullname" . }}
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "uptime-kuma.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    {{- include "uptime-kuma.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: {{ .Values.service.port }}
+      protocol: TCP

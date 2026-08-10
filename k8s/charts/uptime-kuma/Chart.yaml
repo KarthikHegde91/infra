@@ -1,0 +1,37 @@
+# Chart.yaml — the chart's identity card.
+#
+# A Helm "chart" is just a directory with a known layout:
+#   Chart.yaml   → metadata (this file)
+#   values.yaml  → the knobs a user is allowed to turn
+#   templates/   → Kubernetes manifests with {{ }} placeholders
+#
+# `helm template` renders templates/ using values.yaml and produces plain
+# Kubernetes YAML. Nothing magic — it is a typed, versioned templating layer.
+apiVersion: v2
+name: uptime-kuma
+description: Self-hosted status page and uptime monitoring for karthikhegde.in
+
+type: application
+
+# version = the version of THIS CHART. Bump it when the templates change.
+# Semver, and Helm enforces that.
+version: 0.1.0
+
+# appVersion = the version of the software being deployed. Purely informational;
+# it does not set the image tag (that is values.yaml → image.tag).
+# TODO: pin both this and image.tag to a real release instead of "latest".
+appVersion: "latest"
+
+home: https://status.karthikhegde.in
+sources:
+  - https://github.com/louislam/uptime-kuma
+  - https://github.com/KarthikHegde91/infra
+
+maintainers:
+  - name: Karthik B Hegde
+    url: https://karthikhegde.in
+
+keywords:
+  - monitoring
+  - status-page
+  - uptime
