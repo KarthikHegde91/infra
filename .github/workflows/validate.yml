@@ -34,16 +34,36 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install kubeconform
+        run: |
+          curl -sSLo kubeconform.tar.gz \
+            https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz
+          tar xf kubeconform.tar.gz kubeconform
+          sudo mv kubeconform /usr/local/bin/
+
+      # This ran as `uses: docker://ghcr.io/yannh/kubeconform` until the alert
+      # rules landed, and it was broken from the moment the Helm chart was
+      # added. A docker:// action's `args` go straight to the container's
+      # entrypoint with NO shell in between, so the quotes in
+      # `-ignore-filename-pattern 'k8s/charts/.*'` were passed through as
+      # literal characters. The pattern became "'k8s/charts/.*'" — quotes and
+      # all — which matches no path, so the exclusion silently did nothing and
+      # kubeconform tried to parse the chart's Go templates as YAML.
+      #
+      # Running it as a normal `run:` step means a real shell strips the quotes.
+      # Worth noting the shape: the argument LOOKED right in the diff, CI went
+      # red for a reason unrelated to the commit that turned it red, and the
+      # error pointed at the chart rather than at the flag.
+      #
+      # argocd/ + k8s/ only — bootstrap/cloud-init.yaml is not a k8s manifest.
+      # -ignore-missing-schemas: ArgoCD Application CRDs have no upstream schema.
+      # -ignore-filename-pattern: chart templates are unrendered Go templates;
+      #   the helm-validate job below checks them after rendering.
       - name: Validate Kubernetes manifests (kubeconform)
-        uses: docker://ghcr.io/yannh/kubeconform:latest
-        with:
-          # argocd/ + k8s/ only — bootstrap/cloud-init.yaml is not a k8s manifest.
-          # -ignore-missing-schemas: ArgoCD Application CRDs have no upstream schema.
-          # -ignore-filename-pattern: chart templates are unrendered Go templates;
-          #   the helm-validate job below checks them after rendering.
-          args: >-
-            -strict -ignore-missing-schemas -summary
-            -ignore-filename-pattern 'k8s/charts/.*'
+        run: |
+          kubeconform -strict -ignore-missing-schemas -summary \
+            -ignore-filename-pattern 'k8s/charts/.*' \
             argocd k8s
 
   helm-validate:
@@ -90,43 +110,26 @@ jobs:
         run: |
           VERSION=3.13.2   # keep in step with k8s/monitoring/prometheus/deployment.yaml
           curl -sSL "https://github.com/prometheus/prometheus/releases/download/v${VERSION}/prometheus-${VERSION}.linux-amd64.tar.gz" \
-            | tar xz --strip-components=1 -C /usr/local/bin "prometheus-${VERSION}.linux-amd64/promtool"
+            | sudo tar xz --strip-components=1 -C /usr/local/bin "prometheus-${VERSION}.linux-amd64/promtool"
 
-      # Every key in the ConfigMap's data map, written out under its own name.
-      # Iterating rather than hardcoding alerts.yml keeps this honest if a
-      # second rule file is added later — the rule_files glob would pick it up,
-      # so CI has to as well.
-      - name: Extract rules from ConfigMap
+      # The rendering is a committed script rather than a heredoc so it can be
+      # run by hand before pushing — `python3 scripts/prometheus-ci-render.py
+      # /tmp/prom` reproduces this job exactly. A CI-only heredoc is a check you
+      # cannot rehearse, which is how a red pipeline becomes something to
+      # squint at after the fact instead of before.
+      - name: Render ConfigMaps to disk
         run: |
-          mkdir -p /tmp/rules
-          python3 - <<'PY'
-          import yaml, pathlib
-          src = yaml.safe_load(pathlib.Path("k8s/monitoring/prometheus/rules.yaml").read_text())
-          for name, body in src["data"].items():
-              pathlib.Path("/tmp/rules", name).write_text(body)
-              print("extracted", name)
-          PY
+          pip install --quiet pyyaml
+          python3 scripts/prometheus-ci-render.py /tmp/prom
 
+      # The check that matters: real PromQL parsing of every alert expression.
       - name: promtool check rules
-        run: promtool check rules /tmp/rules/*.yml
+        run: promtool check rules /tmp/prom/rules/*.yml
 
-      # Catches the other half: a rule_files glob that matches nothing, or a
-      # scrape_config that no longer parses. Same extraction trick, and the
-      # rules must be on disk first or the config check fails on the glob.
+      # And the other half — a scrape_config that no longer parses, a bad
+      # relabel regex, or a rule_files glob matching nothing.
       - name: promtool check config
-        run: |
-          mkdir -p /tmp/prom/rules
-          cp /tmp/rules/*.yml /tmp/prom/rules/
-          python3 - <<'PY'
-          import yaml, pathlib
-          src = yaml.safe_load(pathlib.Path("k8s/monitoring/prometheus/configmap.yaml").read_text())
-          cfg = yaml.safe_load(src["data"]["prometheus.yml"])
-          # Repoint the glob at the temp copy; in-cluster it is an absolute path
-          # under the ConfigMap mount, which does not exist on a CI runner.
-          cfg["rule_files"] = ["/tmp/prom/rules/*.yml"]
-          pathlib.Path("/tmp/prom/prometheus.yml").write_text(yaml.safe_dump(cfg))
-          PY
-          promtool check config /tmp/prom/prometheus.yml
+        run: promtool check config /tmp/prom/prometheus.yml
 
   terraform-fmt:
     runs-on: ubuntu-latest
