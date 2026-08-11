@@ -30,6 +30,15 @@ spec:
     metadata:
       labels:
         app: victoriametrics
+      # Same gap as grafana/deployment.yaml, with a quieter failure mode. This
+      # pod is the 6-month store every Grafana panel reads from; if it stops
+      # accepting writes, dashboards keep rendering historical data and look
+      # entirely normal while the recent end of every series goes missing.
+      # Scraping it is what lets TargetDown and the remote_write rules in
+      # prometheus/rules.yaml see that.
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8428"
     spec:
       containers:
         - name: victoriametrics

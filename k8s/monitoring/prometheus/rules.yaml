@@ -1,0 +1,309 @@
+# Prometheus alerting rules
+#
+# WHAT THIS IS AND IS NOT
+#
+# These rules make Prometheus EVALUATE conditions and produce an `ALERTS`
+# series when one holds. They do not notify anyone — there is no Alertmanager
+# and no contact point yet, so a firing alert here is visible in Grafana
+# (query `ALERTS{alertstate="firing"}`) and is remote_written to
+# VictoriaMetrics like any other series, and that is all. Delivery is a
+# separate decision that needs a channel to deliver TO.
+#
+# That split is deliberate rather than half-done work. Every rule below was
+# written against metrics confirmed to exist on this cluster; a rule that
+# references a metric nobody exports is silently never-firing, which is worse
+# than no rule at all. Landing the rules first means they can be watched
+# accumulating real firings for a while before anything is wired to a phone.
+#
+# WHY THESE RULES AND NOT A STOCK BUNDLE
+#
+# The obvious move is to paste in kubernetes-mixin. It would not have caught
+# either of this cluster's two real outages, because most of it keys on
+# kube_pod_* / kube_deployment_* metrics from kube-state-metrics, which is NOT
+# deployed here (`count(kube_pod_status_ready)` returns nothing). Those rules
+# would sit in the config looking like coverage and never evaluate to anything.
+#
+# So each group below is traceable to something that actually happened:
+#
+#   Jul 2026 — Grafana OOMKilled against a 256Mi limit.
+#              -> ContainerNearMemoryLimit, NodeOOMKilled
+#   Aug 2026 — Grafana wedged on a stale SQLite lock for six days. The pod had
+#              no probes, so it stayed a healthy Service endpoint while every
+#              request hung; the node sat at 66% iowait and PSI-full 0.79 the
+#              whole time. Nothing scraped Grafana, so no `up` series existed
+#              for it to go to 0.
+#              -> TargetDown (plus the scrape annotations on the grafana and
+#                 victoriametrics pod templates that finally create that
+#                 series), NodeIOStalled, NodeHighIOWait
+#
+# THRESHOLDS
+#
+# Set from measured steady state, not from round numbers. Current values, for
+# whoever revisits these: PSI-full io rate 0.0015, iowait rate 0.0015, memory
+# available 0.64, disk available 0.89, remote_write failures 0. During the Aug
+# outage PSI-full was 0.79 — three orders of magnitude above baseline, which is
+# why NodeIOStalled can afford a threshold as low as 0.30 without flapping.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-rules
+  namespace: monitoring
+data:
+  # Filename must end in .yml to match the rule_files glob in configmap.yaml.
+  alerts.yml: |
+    groups:
+      # ----------------------------------------------------------------------
+      # Is the thing reachable at all?
+      # ----------------------------------------------------------------------
+      - name: availability
+        rules:
+          # The alert that would have ended the six-day outage on day one —
+          # but ONLY because grafana's pod template now carries
+          # prometheus.io/scrape. An `up == 0` rule is worth exactly as much as
+          # the set of targets it covers, and for six days that set did not
+          # include the thing that was down.
+          - alert: TargetDown
+            expr: up == 0
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Prometheus target {{ $labels.job }} is down"
+              description: >-
+                {{ $labels.instance }} (job {{ $labels.job }}) has failed every
+                scrape for 5 minutes. Either the process is gone or it is
+                accepting connections without answering — the second is what
+                happened in Aug 2026.
+
+          # TargetDown covers a target that FAILS. It cannot cover a target that
+          # is absent, because a target which vanishes from service discovery
+          # stops producing an `up` series altogether — and absence is not
+          # `== 0`. No expression built out of `up` can detect this; there is
+          # nothing left to match on.
+          #
+          # prometheus_target_scrape_pool_targets is the way out: Prometheus
+          # exports one series per configured scrape job with its target COUNT,
+          # and that series exists whether or not the pool found anything. It
+          # was sitting at 0 for `kubernetes-pods` the entire six days — the job
+          # was configured, discovery ran, and it matched nothing, because no
+          # pod carried the prometheus.io/scrape annotation it keys on.
+          #
+          # This is the most valuable rule in the file. It is the one that
+          # detects monitoring configured-but-not-connected, which is the exact
+          # failure this cluster keeps repeating in different disguises.
+          - alert: ScrapePoolEmpty
+            expr: prometheus_target_scrape_pool_targets == 0
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Scrape job {{ $labels.scrape_job }} has no targets"
+              description: >-
+                Service discovery matched zero targets for this job, so nothing
+                under it is monitored and no per-target alert can fire. Usual
+                cause is a relabel_config `keep` rule whose condition no pod
+                satisfies — check the prometheus.io/* annotations.
+
+      # ----------------------------------------------------------------------
+      # Node health. One node, so every one of these is cluster-wide.
+      # ----------------------------------------------------------------------
+      - name: node
+        rules:
+          # PSI "full" = every runnable task stalled on IO simultaneously. This
+          # is the single most direct signal of the Aug 2026 failure: a wedged
+          # process pinned at its cgroup memory ceiling with no swap, so the
+          # kernel reclaimed page cache forever and the whole node ground down.
+          # Baseline is 0.0015. 0.30 means the node spends a third of wall-clock
+          # with nothing able to run.
+          - alert: NodeIOStalled
+            expr: rate(node_pressure_io_stalled_seconds_total[5m]) > 0.30
+            for: 10m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Node {{ $labels.instance }} is stalled on I/O"
+              description: >-
+                PSI full-io pressure is {{ $value | printf "%.2f" }} (baseline
+                ~0.002). All tasks are blocked on I/O. Usual cause here is a
+                container held at its memory limit with no swap, forcing
+                endless page-cache reclaim.
+
+          - alert: NodeHighIOWait
+            expr: sum by (instance) (rate(node_cpu_seconds_total{mode="iowait"}[10m])) > 0.25
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Node {{ $labels.instance }} spending {{ $value | humanizePercentage }} in iowait"
+              description: >-
+                Sustained iowait on a single-core node starves everything else.
+                Reached 0.67 during the Aug 2026 outage.
+
+          - alert: NodeMemoryLow
+            expr: node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes < 0.10
+            for: 10m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Node {{ $labels.instance }} has under 10% memory available"
+              description: >-
+                MemAvailable is {{ $value | humanizePercentage }} of total. There is
+                no swap on this node, so the next step is the OOM killer
+                choosing a victim by usage-above-request.
+
+          # Fires on the fact rather than the risk. node_vmstat_oom_kill is a
+          # kernel counter, so this catches an OOMKill even when the container
+          # restarts fast enough that nothing else notices — exactly the Jul
+          # 2026 shape, where Grafana died against a 256Mi limit and came back
+          # looking fine.
+          - alert: NodeOOMKilled
+            expr: increase(node_vmstat_oom_kill[15m]) > 0
+            labels:
+              severity: critical
+            annotations:
+              summary: "OOM killer fired on {{ $labels.instance }}"
+              description: >-
+                The kernel killed at least one process for memory in the last
+                15 minutes. Check which container is nearest its limit.
+
+          - alert: NodeDiskFillingUp
+            expr: >-
+              node_filesystem_avail_bytes{mountpoint="/"}
+              / node_filesystem_size_bytes{mountpoint="/"} < 0.15
+            for: 30m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Root filesystem on {{ $labels.instance }} is {{ $value | humanizePercentage }} free"
+              description: >-
+                Every PVC in this cluster is local-path storage on this same
+                disk, so a full root filesystem takes the metrics stores and
+                Grafana's SQLite database down with it.
+
+      # ----------------------------------------------------------------------
+      # Workloads
+      # ----------------------------------------------------------------------
+      - name: workloads
+        rules:
+          # Note the > 0 filter on the limit. cAdvisor reports
+          # container_spec_memory_limit_bytes as 0 for containers with no
+          # limit, so without the filter this divides by zero and every
+          # unlimited container reports +Inf — i.e. the alert fires constantly
+          # and gets muted, which is how a rule becomes decoration.
+          - alert: ContainerNearMemoryLimit
+            expr: >-
+              max by (namespace, pod, container) (container_memory_working_set_bytes{container!=""})
+              / max by (namespace, pod, container) (container_spec_memory_limit_bytes{container!=""} > 0)
+              > 0.90
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "{{ $labels.namespace }}/{{ $labels.pod }} is at {{ $value | humanizePercentage }} of its memory limit"
+              description: >-
+                Container {{ $labels.container }} is close to being OOMKilled.
+                On a node without swap, a container pinned at its ceiling also
+                drives node-wide page-cache reclaim (see NodeIOStalled).
+
+          # Deliberately a subquery over the pod/container aggregate rather
+          # than raw cAdvisor series. Each container instance gets a new
+          # cAdvisor `id`, so counting changes on the raw series would miss
+          # restarts entirely. Aggregating first means an in-place restart
+          # shows up as a value change on a stable series.
+          #
+          # A normal rollout creates a NEW pod name, hence a brand-new series
+          # with zero changes — so deploys do not trip this. Only crash loops,
+          # OOMKills and liveness-probe kills do.
+          - alert: ContainerRestartLoop
+            expr: >-
+              changes(
+                max by (namespace, pod, container) (container_start_time_seconds{container!=""})[30m:1m]
+              ) > 2
+            labels:
+              severity: warning
+            annotations:
+              summary: "{{ $labels.namespace }}/{{ $labels.pod }} restarted {{ $value }} times in 30m"
+              description: >-
+                Container {{ $labels.container }} is restarting in place. Check
+                for OOMKill (see NodeOOMKilled) or a failing liveness probe.
+
+      # ----------------------------------------------------------------------
+      # The monitoring pipeline itself.
+      #
+      # A monitoring stack that cannot report its own failure is the whole
+      # theme of this cluster's outage history: ArgoCD said Synced/Healthy for
+      # three weeks while comparing a single file, and Grafana served 502s
+      # while every dashboard about it stayed green. These rules exist so the
+      # pipeline is not the one thing nothing watches.
+      # ----------------------------------------------------------------------
+      - name: pipeline
+        rules:
+          - alert: RemoteWriteFailing
+            expr: sum(rate(prometheus_remote_storage_samples_failed_total[10m])) > 0
+            for: 15m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Prometheus remote_write to VictoriaMetrics is failing"
+              description: >-
+                Samples are being rejected. Prometheus keeps only 7 days
+                locally (--storage.tsdb.retention.time), so once its WAL
+                buffer is exhausted this is permanent data loss from the
+                6-month store, with no gap visible until someone looks back.
+
+          - alert: RemoteWriteBacklogged
+            expr: prometheus_remote_storage_samples_pending > 50000
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Prometheus remote_write queue is backing up"
+              description: >-
+                {{ $value }} samples pending. VictoriaMetrics is accepting
+                writes more slowly than they arrive — often the first sign of
+                the node-level I/O stall in NodeIOStalled.
+
+          # Self-referential on purpose. If a future edit to alerts.yml ships a
+          # rule with a metric that does not parse or a division that errors,
+          # Prometheus keeps running and simply stops evaluating that group.
+          # Without this, the failure mode is silent: the rules are "there",
+          # the config is "loaded", and nothing ever fires.
+          - alert: RuleEvaluationFailing
+            expr: increase(prometheus_rule_evaluation_failures_total[15m]) > 0
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Prometheus rule group {{ $labels.rule_group }} is failing to evaluate"
+              description: >-
+                Alert rules in this group are erroring, so the conditions they
+                cover are NOT being checked. Validate with `promtool check
+                rules` (the CI job in .github/workflows/validate.yml).
+
+          - alert: PrometheusWALCorrupted
+            expr: increase(prometheus_tsdb_wal_corruptions_total[1h]) > 0
+            labels:
+              severity: warning
+            annotations:
+              summary: "Prometheus detected WAL corruption"
+              description: >-
+                Usually follows an unclean shutdown — a node reboot, or an
+                OOMKill of the Prometheus container. Some recent local samples
+                are gone; VictoriaMetrics should still hold anything already
+                remote_written.
+
+          # Always firing, by construction. It is useless without delivery and
+          # essential the moment delivery exists: a receiver that stops seeing
+          # Watchdog knows the pipeline died, whereas silence from every other
+          # rule is indistinguishable from everything being fine. Kept here so
+          # it is already producing a series when a contact point is added.
+          - alert: Watchdog
+            expr: vector(1)
+            labels:
+              severity: none
+            annotations:
+              summary: "Alerting pipeline is alive"
+              description: >-
+                This alert always fires. Its ABSENCE at a receiver is the
+                signal: it means Prometheus, its rules, or the delivery path
+                has stopped working.

@@ -74,6 +74,60 @@ jobs:
           helm template uptime-kuma k8s/charts/uptime-kuma \
             | kubeconform -strict -ignore-missing-schemas -summary -
 
+  # kubeconform proves prometheus-rules is a well-formed ConfigMap. It does NOT
+  # look inside the string, so a rule with broken PromQL passes every job above
+  # and lands in the cluster — where Prometheus loads the config, skips the bad
+  # group, and carries on looking healthy. The alerts in that group then simply
+  # never fire, which is indistinguishable from nothing being wrong.
+  #
+  # This job extracts the rules and runs the real parser over them.
+  promtool-rules:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install promtool
+        run: |
+          VERSION=3.13.2   # keep in step with k8s/monitoring/prometheus/deployment.yaml
+          curl -sSL "https://github.com/prometheus/prometheus/releases/download/v${VERSION}/prometheus-${VERSION}.linux-amd64.tar.gz" \
+            | tar xz --strip-components=1 -C /usr/local/bin "prometheus-${VERSION}.linux-amd64/promtool"
+
+      # Every key in the ConfigMap's data map, written out under its own name.
+      # Iterating rather than hardcoding alerts.yml keeps this honest if a
+      # second rule file is added later — the rule_files glob would pick it up,
+      # so CI has to as well.
+      - name: Extract rules from ConfigMap
+        run: |
+          mkdir -p /tmp/rules
+          python3 - <<'PY'
+          import yaml, pathlib
+          src = yaml.safe_load(pathlib.Path("k8s/monitoring/prometheus/rules.yaml").read_text())
+          for name, body in src["data"].items():
+              pathlib.Path("/tmp/rules", name).write_text(body)
+              print("extracted", name)
+          PY
+
+      - name: promtool check rules
+        run: promtool check rules /tmp/rules/*.yml
+
+      # Catches the other half: a rule_files glob that matches nothing, or a
+      # scrape_config that no longer parses. Same extraction trick, and the
+      # rules must be on disk first or the config check fails on the glob.
+      - name: promtool check config
+        run: |
+          mkdir -p /tmp/prom/rules
+          cp /tmp/rules/*.yml /tmp/prom/rules/
+          python3 - <<'PY'
+          import yaml, pathlib
+          src = yaml.safe_load(pathlib.Path("k8s/monitoring/prometheus/configmap.yaml").read_text())
+          cfg = yaml.safe_load(src["data"]["prometheus.yml"])
+          # Repoint the glob at the temp copy; in-cluster it is an absolute path
+          # under the ConfigMap mount, which does not exist on a CI runner.
+          cfg["rule_files"] = ["/tmp/prom/rules/*.yml"]
+          pathlib.Path("/tmp/prom/prometheus.yml").write_text(yaml.safe_dump(cfg))
+          PY
+          promtool check config /tmp/prom/prometheus.yml
+
   terraform-fmt:
     runs-on: ubuntu-latest
     steps:

@@ -21,6 +21,18 @@ spec:
     metadata:
       labels:
         app: grafana
+      # The missing half of alerting. The `kubernetes-pods` scrape job in
+      # prometheus/configmap.yaml keeps ONLY pods carrying this annotation, and
+      # Grafana never had it — so Grafana was not a Prometheus target, no `up`
+      # series existed for it, and the Aug 2026 outage had nothing that could
+      # go to zero. Six days of 502s while every dashboard stayed green.
+      #
+      # Grafana serves its own /metrics on the same port as the UI, so this
+      # costs one extra scrape every 30s and buys the TargetDown rule something
+      # to be about.
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
     spec:
       containers:
         - name: grafana

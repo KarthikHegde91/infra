@@ -16,6 +16,26 @@ data:
       evaluation_interval: 30s
       # How often Prometheus evaluates alert rules
 
+    # Alert rule definitions, mounted from the prometheus-rules ConfigMap
+    # (rules.yaml in this directory) by deployment.yaml.
+    #
+    # evaluation_interval above was already set to 30s, and had been since this
+    # file was written — but with no rule_files there was nothing to evaluate,
+    # so the setting described an intention rather than a behaviour. That is the
+    # cheapest possible version of this cluster's recurring failure: a config
+    # that reads as if monitoring is configured while the mechanism is absent.
+    #
+    # The glob is intentional. Adding a rule file means dropping a key into the
+    # ConfigMap; nothing in this file has to change.
+    rule_files:
+      - /etc/prometheus/rules/*.yml
+
+    # NOTE: there is deliberately no `alerting:` block yet. Alertmanager is not
+    # deployed, so rules that fire produce an ALERTS series (queryable in
+    # Grafana, and remote_written to VictoriaMetrics like anything else) and
+    # notify no one. Wiring delivery needs a channel to deliver to; see the
+    # header of rules.yaml.
+
     # Send all metrics to VictoriaMetrics for long-term storage
     remote_write:
       - url: http://victoriametrics.monitoring.svc.cluster.local:8428/api/v1/write
